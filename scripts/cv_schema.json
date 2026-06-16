@@ -1,0 +1,22 @@
+{
+  "name": "",
+  "title": "",
+  "email": "",
+  "phone": "",
+  "address": "",
+  "linkedin": "",
+  "summary": "",
+  "experience": [
+    {
+      "role": "",
+      "company": "",
+      "period": "",
+      "location": "",
+      "bullets": [
+        ""
+      ]
+    }
+  ],
+  "skills": [],
+  "education": []
+}

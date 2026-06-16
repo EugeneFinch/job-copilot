@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Eugene Bochkov - CV</title>
+  <style>
+    :root {
+      --text-main: #000000;
+      --text-muted: #475569;
+      --primary-blue: #1d4ed8; /* Royal blue for section titles */
+      --divider-blue: #2563eb; /* Divider line color */
+    }
+    
+    @page {
+      size: A4;
+      margin: 18mm 20mm 18mm 20mm;
+    }
+    
+    body {
+      font-family: 'Garamond', 'Georgia', 'Times New Roman', serif;
+      color: var(--text-main);
+      line-height: 1.45;
+      font-size: 11pt; /* Classic Garamond print scale */
+      margin: 0;
+      padding: 0;
+      background-color: #ffffff;
+      -webkit-print-color-adjust: exact;
+    }
+    
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+    
+    /* Header layout - Left Photo, Black Vertical Divider, Right Text */
+    .header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    
+    .header-photo-container {
+      flex-shrink: 0;
+      margin-right: 16px;
+    }
+    
+    .profile-photo {
+      width: 90px;
+      height: 90px;
+      object-fit: cover;
+      display: block;
+      border: 1px solid #cbd5e1;
+    }
+    
+    .header-text {
+      flex: 1;
+      border-left: 1.5px solid #000000; /* Vertical divider */
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    .name-title h1 {
+      font-size: 24pt;
+      font-weight: bold;
+      margin: 0 0 2px 0;
+      color: #000000;
+      letter-spacing: -0.5px;
+    }
+    
+    .name-title h2 {
+      font-size: 11pt;
+      font-weight: normal;
+      font-style: italic;
+      margin: 0 0 8px 0;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+    
+    .contact-info {
+      font-size: 9pt;
+      color: #000000;
+      line-height: 1.4;
+    }
+    
+    .contact-info a.email-link {
+      color: #2563eb;
+      text-decoration: underline;
+    }
+    
+    .visa-badge {
+      color: #000000;
+    }
+    
+    /* Section Headings - Uppercase Blue with Horizontal Blue Rule */
+    .section-title {
+      font-size: 11pt;
+      font-weight: bold;
+      color: var(--primary-blue);
+      border-bottom: 1px solid var(--divider-blue);
+      padding-bottom: 1px;
+      margin: 20px 0 8px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    /* Summary Block */
+    .summary-text {
+      font-size: 10pt;
+      color: var(--text-main);
+      margin: 0;
+      text-align: justify;
+    }
+    
+    /* Experience Layout */
+    .experience-item {
+      margin-bottom: 12px;
+      page-break-inside: avoid;
+    }
+    
+    .exp-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-weight: bold;
+      font-size: 10.5pt;
+      color: #000000;
+    }
+    
+    .exp-role-company {
+      font-size: 10.5pt;
+    }
+    
+    .exp-role {
+      font-weight: bold;
+    }
+    
+    .exp-company {
+      font-weight: normal;
+      font-style: italic;
+    }
+    
+    .exp-meta {
+      font-size: 9pt;
+      font-weight: normal;
+      color: #334155;
+    }
+    
+    .exp-bullets {
+      margin: 4px 0 0 0;
+      padding-left: 18px;
+      font-size: 9.8pt;
+      color: var(--text-main);
+    }
+    
+    .exp-bullets li {
+      margin-bottom: 2.5px;
+      text-align: justify;
+    }
+    
+    /* Core Skills */
+    .skills-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 9.8pt;
+    }
+    
+    .skills-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 10px;
+    }
+    
+    .skills-label {
+      font-weight: bold;
+    }
+    
+    /* Education */
+    .edu-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 6px;
+    }
+    
+    .edu-degree {
+      font-weight: bold;
+      font-size: 9.8pt;
+    }
+    
+    .edu-school {
+      font-weight: normal;
+      font-style: italic;
+    }
+    
+    .edu-period {
+      font-size: 9pt;
+      color: #334155;
+    }
+    
+    /* Other */
+    .other-list {
+      margin: 4px 0 0 0;
+      padding-left: 18px;
+      font-size: 9.8pt;
+    }
+    
+    .other-list li {
+      margin-bottom: 2.5px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-photo-container">
+      <img src="eugene_photo.png" onerror="this.onerror=null; this.src='/data/generated/eugene_photo.png'" alt="Eugene Bochkov" class="profile-photo">
+    </div>
+    <div class="header-text">
+      <div class="name-title">
+        <h1 id="cv-name">Eugene Bochkov</h1>
+        <h2 id="cv-title">Product Leader &bull; AI-Powered SaaS & Fintech Infrastructure &bull; B2B Platforms</h2>
+      </div>
+      <div class="contact-info">
+        <a href="mailto:eu.bochkov@gmail.com" id="cv-email" class="email-link">eu.bochkov@gmail.com</a> • 
+        <span id="cv-address-container"><span id="cv-address">9 Revell Crescent, St Albans, VIC 3021</span> • </span>
+        <a href="https://linkedin.com/in/eugene-bochkov" target="_blank" id="cv-linkedin">linkedin.com/in/eugene-bochkov</a>
+        <span id="cv-phone-container" style="display: none;"> • <span id="cv-phone"></span></span> • 
+        <span class="visa-badge" id="cv-visa">Australia Permanent Resident (PR)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-title">Summary</div>
+  <div class="summary-section">
+    <p class="summary-text" id="cv-summary">
+      10+ years shipping B2B fintech products across APAC — payments infrastructure, credit, compliance, and Xero integrations. Most recently co-founded a yield infrastructure platform on Solana. Relocating to Australia with full work rights (Global Talent visa, subclass 858).
+    </p>
+  </div>
+
+  <div class="section-title">Work Experience</div>
+  <div id="cv-experience">
+    <!-- Dynamic Experience Items will be injected here -->
+  </div>
+
+  <div class="section-title">Core Skills</div>
+  <div class="skills-grid">
+    <div class="skills-row">
+      <span class="skills-label">AI & Platform:</span>
+      <span>AI-powered SaaS, agentic product design, B2B platforms, 0→1 development, feature flags & A/B testing</span>
+    </div>
+    <div class="skills-row">
+      <span class="skills-label">Analytics:</span>
+      <span>Product analytics instrumentation (Mixpanel), lifecycle marketing (Braze), dashboards</span>
+    </div>
+    <div class="skills-row">
+      <span class="skills-label">Fintech:</span>
+      <span>Payments infrastructure, credit & lending, compliance workflows, Xero integrations</span>
+    </div>
+  </div>
+
+  <div class="section-title">Education</div>
+  <div id="cv-education">
+    <div class="edu-item">
+      <span><span class="edu-degree">Master of Business Administration</span> · <span class="edu-school">Kyiv National Economic University (KNEU)</span></span>
+      <span class="edu-period">2011 – 2012</span>
+    </div>
+    <div class="edu-item">
+      <span><span class="edu-degree">Bachelor of Management</span> · <span class="edu-school">Kyiv National Economic University (KNEU)</span></span>
+      <span class="edu-period">2007 – 2011</span>
+    </div>
+  </div>
+
+  <div class="section-title">Other</div>
+  <ul class="other-list">
+    <li>Entrepreneur-in-Residence, Antler Singapore (SG4 cohort, 2020)</li>
+    <li>Hackathon winner: Colosseum Hackathon</li>
+    <li id="cv-other-visa">Australia Permanent Resident (PR)</li>
+  </ul>
+
+  <script>
+    function populateCV(data) {
+      if (!data) return;
+      
+      if (data.name) document.getElementById('cv-name').innerText = data.name;
+      if (data.title) document.getElementById('cv-title').innerText = data.title;
+      if (data.email) {
+        const emailEl = document.getElementById('cv-email');
+        emailEl.innerText = data.email;
+        emailEl.href = 'mailto:' + data.email;
+      }
+      if (data.linkedin) {
+        const liEl = document.getElementById('cv-linkedin');
+        liEl.innerText = data.linkedin;
+        liEl.href = data.linkedin.startsWith('http') ? data.linkedin : 'https://' + data.linkedin;
+      }
+      if (data.phone) {
+        const phoneContainer = document.getElementById('cv-phone-container');
+        if (phoneContainer) phoneContainer.style.display = 'inline';
+        const phoneEl = document.getElementById('cv-phone');
+        if (phoneEl) phoneEl.innerText = data.phone;
+      }
+      if (data.address) {
+        const addrContainer = document.getElementById('cv-address-container');
+        if (addrContainer) addrContainer.style.display = 'inline';
+        const addrEl = document.getElementById('cv-address');
+        if (addrEl) addrEl.innerText = data.address;
+      }
+      if (data.visa) {
+        document.getElementById('cv-visa').innerText = data.visa;
+        const otherVisa = document.getElementById('cv-other-visa');
+        if (otherVisa) {
+          otherVisa.innerText = data.visa;
+        }
+      }
+      if (data.summary) {
+        document.getElementById('cv-summary').innerText = data.summary;
+      }
+      
+      if (data.experience && data.experience.length > 0) {
+        const expContainer = document.getElementById('cv-experience');
+        expContainer.innerHTML = '';
+        
+        data.experience.forEach(exp => {
+          const item = document.createElement('div');
+          item.className = 'experience-item';
+          
+          const header = document.createElement('div');
+          header.className = 'exp-header';
+          header.innerHTML = `
+            <span class="exp-role-company">
+              <span class="exp-role">${exp.role}</span>, 
+              <span class="exp-company">${exp.company}</span>
+            </span>
+            <span class="exp-meta">${exp.period} | ${exp.location || 'Remote'}</span>
+          `;
+          
+          const bullets = document.createElement('ul');
+          bullets.className = 'exp-bullets';
+          
+          exp.bullets.forEach(bullet => {
+            const li = document.createElement('li');
+            li.innerText = bullet;
+            bullets.appendChild(li);
+          });
+          
+          item.appendChild(header);
+          item.appendChild(bullets);
+          expContainer.appendChild(item);
+        });
+      }
+    }
+  </script>
+</script>
+</script>
+</body>
+</html>
