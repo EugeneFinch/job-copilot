@@ -245,20 +245,9 @@
     <!-- Dynamic Experience Items will be injected here -->
   </div>
 
-  <div class="section-title">Core Skills</div>
-  <div class="skills-grid">
-    <div class="skills-row">
-      <span class="skills-label">AI & Platform:</span>
-      <span>AI-powered SaaS, agentic product design, B2B platforms, 0→1 development, feature flags & A/B testing</span>
-    </div>
-    <div class="skills-row">
-      <span class="skills-label">Analytics:</span>
-      <span>Product analytics instrumentation (Mixpanel), lifecycle marketing (Braze), dashboards</span>
-    </div>
-    <div class="skills-row">
-      <span class="skills-label">Fintech:</span>
-      <span>Payments infrastructure, credit & lending, compliance workflows, Xero integrations</span>
-    </div>
+  <div id="cv-skills-section" style="display: none;">
+    <div class="section-title">Core Skills</div>
+    <p class="summary-text" id="cv-skills-content" style="margin: 0;"></p>
   </div>
 
   <div class="section-title">Education</div>
@@ -274,10 +263,8 @@
   </div>
 
   <div class="section-title">Other</div>
-  <ul class="other-list">
+  <ul class="other-list" id="cv-other-list">
     <li>Entrepreneur-in-Residence, Antler Singapore (SG4 cohort, 2020)</li>
-    <li>Hackathon winner: Colosseum Hackathon</li>
-    <li id="cv-other-visa">Australia Permanent Resident (PR)</li>
   </ul>
 
   <script>
@@ -310,13 +297,30 @@
       }
       if (data.visa) {
         document.getElementById('cv-visa').innerText = data.visa;
-        const otherVisa = document.getElementById('cv-other-visa');
-        if (otherVisa) {
-          otherVisa.innerText = data.visa;
-        }
       }
       if (data.summary) {
         document.getElementById('cv-summary').innerText = data.summary;
+      }
+
+      const skillsSection = document.getElementById('cv-skills-section');
+      const skillsContent = document.getElementById('cv-skills-content');
+      const coreSkills = (data.coreSkills || '').trim();
+      if (skillsSection && skillsContent) {
+        if (coreSkills) {
+          skillsSection.style.display = 'block';
+          skillsContent.innerText = coreSkills;
+        } else {
+          skillsSection.style.display = 'none';
+          skillsContent.innerText = '';
+        }
+      }
+
+      const otherList = document.getElementById('cv-other-list');
+      if (otherList) {
+        const extras = Array.isArray(data.otherHighlights) ? data.otherHighlights.filter(Boolean) : [];
+        const defaultOther = 'Entrepreneur-in-Residence, Antler Singapore (SG4 cohort, 2020)';
+        const lines = extras.length ? extras : [defaultOther];
+        otherList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
       }
       
       if (data.experience && data.experience.length > 0) {
@@ -353,7 +357,5 @@
       }
     }
   </script>
-</script>
-</script>
 </body>
 </html>

@@ -22,8 +22,247 @@ import {
   Plus,
   Sun,
   Moon,
-  Upload
+  Upload,
+  Clock,
+  Bell
 } from 'lucide-react';
+
+const CRM_FOLLOW_UP_DAYS = 7;
+
+function buildContactStatusPayload(newStatus, existing = {}) {
+  const now = new Date().toISOString();
+  const payload = { status: newStatus };
+
+  if (newStatus === 'Invite Sent' || newStatus === 'Waiting') {
+    payload.inviteSentAt = existing.inviteSentAt || now;
+    const followUp = new Date(payload.inviteSentAt);
+    followUp.setDate(followUp.getDate() + CRM_FOLLOW_UP_DAYS);
+    payload.nextFollowUpAt = followUp.toISOString();
+    payload.followUpNeeded = false;
+    if (!existing.lastOutboundDate) payload.lastOutboundDate = now;
+  } else if (newStatus === 'To Contact' || newStatus === 'To Source') {
+    payload.followUpNeeded = true;
+  } else if (newStatus === 'Follow Up Needed') {
+    payload.followUpNeeded = true;
+  } else if (newStatus === 'Replied') {
+    payload.followUpNeeded = false;
+    payload.nextFollowUpAt = '';
+  }
+
+  return payload;
+}
+
+function formatFollowUpDate(isoDate) {
+  if (!isoDate) return 'Not set';
+  return new Date(isoDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function daysUntil(isoDate) {
+  if (!isoDate) return null;
+  const diff = new Date(isoDate).getTime() - Date.now();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+const RECRUITER_AGENCIES = [
+  'hays', 'onset', 'wow recruitment', 'latitude it', 'salt', 'talent international',
+  'hudson', 'robert half', 'michael page', 'adecco', 'randstad', 'genesis', 'aurec',
+  'paxus', 'greythorn', 'chandler macleod', 'espy', 'allura', 'halcyon knights',
+  'prestige staffing', 'charterhouse', 'command', 'davidson', 'sharp & carter',
+  'tribe', 'reo group', 'denovo', 'sourced', 'g2', 'kinexus', 'm&t resources',
+  'polyglot', 'peoplebank', 'talenza', 'trs resourcing', 'sirius', 'bluefin',
+  'concept recruitment', 'method recruitment', 'mitchellake', 'xpand', 'interpro',
+  'robert walters', 'executive search'
+];
+
+function shortRoleTitle(title = '') {
+  return String(title)
+    .replace(/\s*[-–—|]\s*(software delivery|hybrid|remote|sydney|melbourne).*/i, '')
+    .trim() || title;
+}
+
+function isRecruiterPosting(company = '', isRecruiter = false) {
+  if (isRecruiter) return true;
+  const lower = String(company).toLowerCase();
+  return RECRUITER_AGENCIES.some((agency) => lower.includes(agency));
+}
+
+function buildQuickOutreachMessage({ title = '', company = '', contactFirstName = '', isRecruiter = false } = {}) {
+  const first = (contactFirstName || '').trim().split(' ')[0];
+  const greeting = first ? `Hey ${first},` : 'Hey,';
+  const role = shortRoleTitle(title) || 'this role';
+  const recruiter = isRecruiterPosting(company, isRecruiter);
+
+  let body;
+  if (recruiter) {
+    body = `Eugene here — just applied for the ${role} role that you posted. Happy to chat if useful.`;
+  } else {
+    const atCompany = company ? ` at ${company}` : '';
+    body = `Eugene here — just applied for the ${role} role${atCompany}. Happy to chat if useful.`;
+  }
+
+  return `${greeting}\n\n${body}`.slice(0, 300);
+}
+
+function formatModelBadge(job) {
+  const parts = [];
+  if (job?.tailoredByModel) parts.push(`CV: ${job.tailoredByModel}`);
+  if (job?.coverLetterByModel) parts.push(`Letter: ${job.coverLetterByModel}`);
+  return parts.join(' · ');
+}
+
+function flattenInsightText(text) {
+  return String(text || '')
+    .replace(/^Suitability Score:\s*\d+\/10\s*/i, '')
+    .replace(/^Okay, the score is\s*\d+\/10\.\s*[^\n]*\n*/i, '')
+    .replace(/^-\s+/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function CollapsibleInsightCard({ title, text, badge, accentColor, bgColor, borderColor }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = flattenInsightText(text);
+
+  if (!text) return null;
+
+  return (
+    <div
+      className="glass-card"
+      style={{
+        background: bgColor,
+        borderColor,
+        marginBottom: '16px',
+        padding: expanded ? '16px' : '10px 12px'
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        style={{
+          width: '100%',
+          margin: 0,
+          padding: 0,
+          border: 'none',
+          background: 'transparent',
+          cursor: 'pointer',
+          textAlign: 'left'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <ChevronRight
+            size={14}
+            style={{
+              color: accentColor,
+              transform: expanded ? 'rotate(90deg)' : 'none',
+              transition: 'transform 0.2s ease',
+              flexShrink: 0
+            }}
+          />
+          <h5
+            style={{
+              fontSize: '0.85rem',
+              fontWeight: 'bold',
+              color: accentColor,
+              margin: 0,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              flex: '1 1 auto'
+            }}
+          >
+            {title}
+          </h5>
+          {badge && (
+            <span className="badge" style={{ fontSize: '0.65rem', borderColor: accentColor, color: accentColor }}>
+              {badge}
+            </span>
+          )}
+        </div>
+        {!expanded && preview && (
+          <p
+            style={{
+              margin: '6px 0 0 22px',
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+              lineHeight: 1.4,
+              fontStyle: 'italic',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }}
+          >
+            {preview}
+          </p>
+        )}
+      </button>
+      {expanded && (
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: '1.5', whiteSpace: 'pre-wrap', margin: '10px 0 0 22px' }}>
+          {text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function getContactsForJob(contacts, job) {
+  if (!job) return [];
+  return contacts.filter(
+    (c) =>
+      c.jobId === job.id ||
+      (String(c.company || '').toLowerCase() === String(job.company || '').toLowerCase() &&
+        String(c.jobTitle || '').toLowerCase() === String(job.title || '').toLowerCase())
+  );
+}
+
+const OUTREACH_BOARD_COLUMNS = [
+  { id: 'to-reach-out', title: 'To Reach Out', hint: 'Find HM & send invite', color: '#38bdf8' },
+  { id: 'waiting', title: 'Invite Sent — Wait', hint: 'Waiting for reply', color: '#a78bfa' },
+  { id: 'follow-up', title: 'Follow Up', hint: 'Nudge needed', color: '#f59e0b' },
+  { id: 'done', title: 'Done', hint: 'Replied / connected', color: '#10b981' }
+];
+
+function getJobOutreachInfo(job, contacts) {
+  const linked = getContactsForJob(contacts, job);
+  if (!['Applied', 'Invited'].includes(job?.status)) {
+    return { stage: 'n/a', label: '—', contacts: linked, primaryContact: null };
+  }
+
+  if (linked.length === 0) {
+    return { stage: 'to-reach-out', label: 'Find HM', contacts: [], primaryContact: null };
+  }
+
+  const primary =
+    linked.find((c) => c.status === 'Follow Up Needed' || c.followUpNeeded) ||
+    linked.find((c) => c.status === 'Waiting' || c.status === 'Invite Sent') ||
+    linked.find((c) => c.status === 'Replied') ||
+    linked[0];
+
+  const status = primary.status || 'To Contact';
+  if (status === 'Replied') {
+    return { stage: 'done', label: 'Connected', contacts: linked, primaryContact: primary };
+  }
+  if (status === 'Follow Up Needed' || primary.followUpNeeded) {
+    return { stage: 'follow-up', label: 'Follow Up', contacts: linked, primaryContact: primary };
+  }
+  if (status === 'Invite Sent' || status === 'Waiting') {
+    return { stage: 'waiting', label: 'Waiting', contacts: linked, primaryContact: primary };
+  }
+  return { stage: 'to-reach-out', label: 'Reach Out', contacts: linked, primaryContact: primary };
+}
+
+function buildOutreachBoard(jobs, contacts) {
+  const board = Object.fromEntries(OUTREACH_BOARD_COLUMNS.map((col) => [col.id, []]));
+  jobs
+    .filter((j) => j.status === 'Applied' || j.status === 'Invited')
+    .forEach((job) => {
+      const info = getJobOutreachInfo(job, contacts);
+      if (board[info.stage]) {
+        board[info.stage].push({ job, ...info });
+      }
+    });
+  return board;
+}
 
 function parseCSV(text) {
   const lines = [];
@@ -73,11 +312,19 @@ function parseCSV(text) {
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('dashboard');
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('theme') || 'light';
+    } catch (e) {
+      return 'light';
+    }
+  });
   
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
+    try {
+      localStorage.setItem('theme', theme);
+    } catch (e) {}
   }, [theme]);
   const [settings, setSettings] = useState({
     geminiApiKey: '',
@@ -149,6 +396,7 @@ export default function App() {
   const [copiedWhyInterested, setCopiedWhyInterested] = useState(false);
   const [copiedHiringManagerIntro, setCopiedHiringManagerIntro] = useState(false);
   const [isGeneratingHiringIntro, setIsGeneratingHiringIntro] = useState(false);
+  const [isGeneratingCoverLetter, setIsGeneratingCoverLetter] = useState(false);
   
   const [promptRevisionLoading, setPromptRevisionLoading] = useState(false);
   const [promptRevisionResult, setPromptRevisionResult] = useState(null);
@@ -168,6 +416,8 @@ export default function App() {
   const [contactThreadUrl, setContactThreadUrl] = useState('');
   const [contactNotes, setContactNotes] = useState('');
   const [contactStatus, setContactStatus] = useState('To Contact');
+  const [contactJobId, setContactJobId] = useState('');
+  const [contactJobTitle, setContactJobTitle] = useState('');
   
   // Filtering for jobs pipeline
   const [statusFilter, setStatusFilter] = useState('To Process');
@@ -200,7 +450,16 @@ export default function App() {
     setEditingJobUrl(job.url || '');
     setEditingJobAppUrl(job.applicationUrl || '');
     setEditingHiringManager(job.hiringManager || '');
-    setEditingHiringManagerIntro(job.hiringManagerIntro || '');
+    setEditingHiringManagerIntro(
+      job.hiringManagerIntro ||
+      (job.status === 'Applied'
+        ? buildQuickOutreachMessage({
+            title: job.title,
+            company: job.company,
+            isRecruiter: !!job.isRecruiter
+          })
+        : '')
+    );
     setEditingJobIsRecruiter(job.isRecruiter || false);
     setEditingJobScore(job.suitabilityScore || '');
   };
@@ -250,15 +509,20 @@ export default function App() {
 
   const handleSaveContact = async (e) => {
     if (e) e.preventDefault();
-    const payload = {
+    const basePayload = {
       firstName: contactFirstName,
       lastName: contactLastName,
       company: contactCompany,
+      jobId: contactJobId,
+      jobTitle: contactJobTitle,
       profileUrl: contactProfileUrl,
       threadUrl: contactThreadUrl,
       notes: contactNotes,
-      status: contactStatus,
-      followUpNeeded: contactStatus === 'To Contact' || contactStatus === 'Follow Up Needed'
+      status: contactStatus
+    };
+    const payload = {
+      ...basePayload,
+      ...buildContactStatusPayload(contactStatus, isEditingContact || {})
     };
 
     try {
@@ -302,29 +566,60 @@ export default function App() {
     }
   };
 
-  const handleUpdateContactStatus = async (contactId, newStatus) => {
+  const handleUpdateContactStatus = async (contactId, newStatus, extra = {}) => {
     try {
+      const existing = contacts.find((c) => c.id === contactId) || {};
       const res = await fetch(`/api/contacts/${contactId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          status: newStatus,
-          followUpNeeded: newStatus === 'To Contact' || newStatus === 'Follow Up Needed'
+        body: JSON.stringify({
+          ...buildContactStatusPayload(newStatus, existing),
+          ...extra
         })
       });
       const data = await res.json();
       if (data.success) {
-        setContacts(prev => prev.map(c => c.id === contactId ? data.data : c));
+        setContacts((prev) => prev.map((c) => (c.id === contactId ? data.data : c)));
       }
     } catch (e) {
       console.error('Failed to update contact status:', e);
     }
   };
 
+  const handleSnoozeFollowUp = async (contactId, days = CRM_FOLLOW_UP_DAYS) => {
+    const existing = contacts.find((c) => c.id === contactId);
+    if (!existing) return;
+    const nextFollowUpAt = new Date();
+    nextFollowUpAt.setDate(nextFollowUpAt.getDate() + days);
+    await handleUpdateContactStatus(contactId, 'Waiting', {
+      nextFollowUpAt: nextFollowUpAt.toISOString(),
+      followUpNeeded: false
+    });
+  };
+
+  const handleAddContactForJob = (job, preset = {}) => {
+    clearContactForm();
+    setIsEditingContact(null);
+    setContactCompany(job.company || '');
+    setContactJobId(job.id || '');
+    setContactJobTitle(job.title || '');
+    setContactProfileUrl(job.hiringManager?.startsWith('http') ? job.hiringManager : '');
+    if (job.hiringManager && !job.hiringManager.startsWith('http')) {
+      const parts = job.hiringManager.trim().split(' ');
+      setContactFirstName(parts[0] || '');
+      setContactLastName(parts.slice(1).join(' ') || '');
+    }
+    setContactNotes(preset.notes || `Outreach for ${job.title} at ${job.company}`);
+    setContactStatus(preset.status || 'To Contact');
+    setShowAddContactModal(true);
+  };
+
   const clearContactForm = () => {
     setContactFirstName('');
     setContactLastName('');
     setContactCompany('');
+    setContactJobId('');
+    setContactJobTitle('');
     setContactProfileUrl('');
     setContactThreadUrl('');
     setContactNotes('');
@@ -340,6 +635,8 @@ export default function App() {
     setContactThreadUrl(contact.threadUrl || '');
     setContactNotes(contact.notes || '');
     setContactStatus(contact.status || 'To Contact');
+    setContactJobId(contact.jobId || '');
+    setContactJobTitle(contact.jobTitle || '');
     setShowAddContactModal(true);
   };
 
@@ -580,8 +877,8 @@ export default function App() {
         if (selectedJob && selectedJob.id === jobId) {
           handleSelectJob(data);
         }
-        alert('CV tailored and Cover Letter generated successfully!');
-        // Automatically generate PDF so it can be opened immediately
+        const modelLabel = formatModelBadge(data);
+        alert(modelLabel ? `CV tailored successfully!\n\nGenerated by: ${modelLabel}` : 'CV tailored successfully!');
         await handleGeneratePdf(jobId);
       }
     } catch (e) {
@@ -704,11 +1001,18 @@ export default function App() {
     const updated = jobs.map(j => j.id === jobId ? { ...j, status: newStatus } : j);
     setJobs(updated);
     try {
-      await fetch(`/api/jobs/${jobId}`, {
+      const res = await fetch(`/api/jobs/${jobId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
+      if (newStatus === 'Applied') {
+        await fetchContacts();
+      }
+      if (selectedJob?.id === jobId) {
+        const data = await res.json();
+        if (data?.data) setSelectedJob(data.data);
+      }
     } catch (e) {
       console.error('Failed to update status in DB');
     }
@@ -868,6 +1172,44 @@ export default function App() {
 
   const stats = getStats();
 
+  const outreachReadyContacts = contacts.filter(
+    (c) => c.status === 'To Contact' || c.status === 'To Source'
+  );
+  const waitingContacts = contacts.filter(
+    (c) => c.status === 'Invite Sent' || c.status === 'Waiting'
+  );
+  const followUpDueContacts = contacts.filter(
+    (c) =>
+      c.followUpNeeded ||
+      c.status === 'Follow Up Needed' ||
+      ((c.status === 'Invite Sent' || c.status === 'Waiting') &&
+        c.nextFollowUpAt &&
+        new Date(c.nextFollowUpAt).getTime() <= Date.now())
+  );
+  const appliedJobsNeedingOutreach = jobs.filter((job) => {
+    if (job.status !== 'Applied') return false;
+    const linked = getContactsForJob(contacts, job);
+    if (linked.length === 0) return true;
+    return linked.every((c) => c.status === 'To Source' || c.status === 'To Contact');
+  });
+
+  const outreachBoard = buildOutreachBoard(jobs, contacts);
+  const appliedOutreachCount = jobs.filter((j) => j.status === 'Applied' || j.status === 'Invited').length;
+  const outreachTasksCount =
+    outreachBoard['to-reach-out'].length +
+    outreachBoard['follow-up'].length;
+
+  const handleCopyQuickMsgForJob = (job) => {
+    const msg = buildQuickOutreachMessage({
+      title: job.title,
+      company: job.company,
+      contactFirstName: job.hiringManager?.startsWith('http') ? '' : job.hiringManager,
+      isRecruiter: !!job.isRecruiter
+    });
+    navigator.clipboard.writeText(msg);
+    alert('Connect message copied!');
+  };
+
   return (
     <div className="app-container">
       {/* Sidebar */}
@@ -906,6 +1248,11 @@ export default function App() {
           >
             <Briefcase size={18} />
             <span>Job Pipeline</span>
+            {outreachTasksCount > 0 && (
+              <span style={{ marginLeft: 'auto', background: '#f59e0b', color: '#000', fontSize: '0.65rem', fontWeight: '700', padding: '1px 6px', borderRadius: '10px' }}>
+                {outreachTasksCount}
+              </span>
+            )}
           </div>
           <div 
             className={`nav-item ${currentTab === 'profile' ? 'active' : ''}`}
@@ -1037,66 +1384,146 @@ export default function App() {
               </div>
             )}
 
-            {/* Outreach Checklist */}
-            {contacts.filter(c => c.status === 'To Contact' || c.followUpNeeded).length > 0 && (
+            {/* Post-Apply Outreach CRM */}
+            {(appliedJobsNeedingOutreach.length > 0 || outreachReadyContacts.length > 0 || waitingContacts.length > 0 || followUpDueContacts.length > 0) && (
               <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-cyan)', background: 'var(--bg-tertiary)', marginBottom: '24px' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <UserCheck size={18} className="text-cyan" />
-                  Hiring Manager Outreach Tasks ({contacts.filter(c => c.status === 'To Contact' || c.followUpNeeded).length})
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {contacts.filter(c => c.status === 'To Contact' || c.followUpNeeded).map(contact => {
-                    const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
-                    const outreachMsg = contact.lastOutboundSnippet || (contact.notes && contact.notes.includes('AI Outreach Message: ') ? contact.notes.split('AI Outreach Message: ')[1] : '');
-                    
-                    return (
-                      <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '12px' }}>
-                        <div>
-                          <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>
-                            {fullName} at <span style={{ color: 'var(--accent-cyan)' }}>{contact.company}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <UserCheck size={18} className="text-cyan" />
+                    Post-Apply Outreach CRM
+                  </h3>
+                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => setCurrentTab('contacts')}>
+                    Open Full CRM
+                  </button>
+                </div>
+
+                {appliedJobsNeedingOutreach.length > 0 && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--accent-cyan)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Applied — Find & Add Hiring Manager ({appliedJobsNeedingOutreach.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {appliedJobsNeedingOutreach.slice(0, 5).map((job) => (
+                        <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
+                          <div>
+                            <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{job.title}</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{job.company}</div>
                           </div>
-                          {outreachMsg && (
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic', maxWidth: '600px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                              "{outreachMsg}"
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          {contact.profileUrl && (
-                            <a 
-                              href={contact.profileUrl} 
-                              target="_blank" 
-                              rel="noreferrer" 
-                              className="btn btn-secondary"
-                              style={{ padding: '6px 12px', fontSize: '0.75rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              <ExternalLink size={12} /> Profile
-                            </a>
-                          )}
-                          {outreachMsg && (
-                            <button 
-                              className="btn btn-secondary"
-                              style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                              onClick={() => {
-                                navigator.clipboard.writeText(outreachMsg);
-                                alert('AI outreach message copied to clipboard!');
-                              }}
-                            >
-                              Copy Intro
-                            </button>
-                          )}
-                          <button 
-                            className="btn btn-cyan"
-                            style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                            onClick={() => handleUpdateContactStatus(contact.id, 'Invite Sent')}
-                          >
-                            Mark Sent
+                          <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleAddContactForJob(job)}>
+                            Add Hiring Manager
                           </button>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {outreachReadyContacts.length > 0 && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#38bdf8', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Ready to Message ({outreachReadyContacts.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {outreachReadyContacts.slice(0, 5).map((contact) => {
+                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
+                        const outreachMsg = contact.lastOutboundSnippet || (contact.notes?.includes('AI Outreach Message: ') ? contact.notes.split('AI Outreach Message: ')[1] : '');
+                        return (
+                          <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>
+                                {fullName} · <span style={{ color: 'var(--accent-cyan)' }}>{contact.company}</span>
+                              </div>
+                              {contact.jobTitle && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Role: {contact.jobTitle}</div>}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              {contact.profileUrl && (
+                                <a href={contact.profileUrl} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem', textDecoration: 'none' }}>
+                                  <ExternalLink size={12} /> Profile
+                                </a>
+                              )}
+                              {outreachMsg && (
+                                <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => { navigator.clipboard.writeText(outreachMsg); alert('Outreach message copied!'); }}>
+                                  Copy Intro
+                                </button>
+                              )}
+                              <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Waiting')}>
+                                Invite Sent — Wait
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {waitingContacts.length > 0 && (
+                  <div style={{ marginBottom: followUpDueContacts.length > 0 ? '16px' : 0 }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#a78bfa', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Clock size={14} /> Waiting for Reply ({waitingContacts.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {waitingContacts.slice(0, 5).map((contact) => {
+                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
+                        const daysLeft = daysUntil(contact.nextFollowUpAt);
+                        return (
+                          <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{fullName} at {contact.company}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                Invited {contact.inviteSentAt ? formatFollowUpDate(contact.inviteSentAt) : 'recently'}
+                                {contact.nextFollowUpAt && ` · Follow up ${daysLeft !== null && daysLeft <= 0 ? 'due now' : `in ${daysLeft}d`} (${formatFollowUpDate(contact.nextFollowUpAt)})`}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Replied')}>
+                                Got Reply
+                              </button>
+                              <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleSnoozeFollowUp(contact.id)}>
+                                Remind in 7d
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {followUpDueContacts.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Bell size={14} /> Follow Up Needed ({followUpDueContacts.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {followUpDueContacts.slice(0, 5).map((contact) => {
+                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
+                        const outreachMsg = contact.lastOutboundSnippet || '';
+                        return (
+                          <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(245, 158, 11, 0.08)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.25)', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{fullName} at {contact.company}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No reply yet — time to nudge</div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              {outreachMsg && (
+                                <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => { navigator.clipboard.writeText(outreachMsg); alert('Message copied — send a follow-up!'); }}>
+                                  Copy Message
+                                </button>
+                              )}
+                              <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleSnoozeFollowUp(contact.id)}>
+                                Remind in 7d
+                              </button>
+                              <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Replied')}>
+                                Replied
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1205,12 +1632,99 @@ export default function App() {
         {/* TAB 2: JOB PIPELINE */}
         {currentTab === 'jobs' && (
           <div>
-            <div className="dashboard-header">
+            <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2>Job Application Pipeline</h2>
-                <p>Manage, tailor, and auto-apply for discovered roles.</p>
+                <p>Manage, tailor, auto-apply, and track outreach for each role.</p>
               </div>
+              {outreachTasksCount > 0 && (
+                <button
+                  className="btn btn-cyan"
+                  style={{ padding: '8px 14px', fontSize: '0.8rem' }}
+                  onClick={() => setStatusFilter('Applied')}
+                >
+                  {outreachTasksCount} outreach task{outreachTasksCount === 1 ? '' : 's'} pending
+                </button>
+              )}
             </div>
+
+            {/* Outreach board — linked to Applied jobs */}
+            {appliedOutreachCount > 0 && (statusFilter === 'Applied' || statusFilter === 'Invited' || statusFilter === 'All') && (
+              <div className="glass-card" style={{ marginBottom: '20px', padding: '16px', borderLeft: '4px solid var(--accent-cyan)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <UserCheck size={18} className="text-cyan" />
+                      Outreach Board
+                    </h3>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Applied jobs → who to message → waiting → follow up → done
+                    </p>
+                  </div>
+                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => setCurrentTab('contacts')}>
+                    Full CRM
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: '12px', overflowX: 'auto' }}>
+                  {OUTREACH_BOARD_COLUMNS.map((col) => (
+                    <div key={col.id} style={{ background: 'var(--bg-tertiary)', borderRadius: '10px', border: '1px solid var(--border-color)', minHeight: '120px' }}>
+                      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: '700', color: col.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          {col.title} ({outreachBoard[col.id].length})
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>{col.hint}</div>
+                      </div>
+                      <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
+                        {outreachBoard[col.id].length === 0 ? (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '8px', textAlign: 'center' }}>—</div>
+                        ) : (
+                          outreachBoard[col.id].map(({ job, primaryContact }) => (
+                            <div
+                              key={job.id}
+                              style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', cursor: 'pointer' }}
+                              onClick={() => handleSelectJob(job)}
+                            >
+                              <div style={{ fontWeight: '600', fontSize: '0.8rem' }}>{job.company}</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '6px' }}>{job.title}</div>
+                              {primaryContact && (
+                                <div style={{ fontSize: '0.68rem', color: col.color }}>
+                                  {primaryContact.firstName} {primaryContact.lastName}
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                                <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleCopyQuickMsgForJob(job)}>
+                                  Copy Msg
+                                </button>
+                                {col.id === 'to-reach-out' && !primaryContact && (
+                                  <button className="btn btn-cyan" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleAddContactForJob(job)}>
+                                    Add HM
+                                  </button>
+                                )}
+                                {primaryContact && col.id === 'to-reach-out' && (
+                                  <button className="btn btn-cyan" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleUpdateContactStatus(primaryContact.id, 'Waiting')}>
+                                    Sent
+                                  </button>
+                                )}
+                                {primaryContact && col.id === 'waiting' && (
+                                  <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleUpdateContactStatus(primaryContact.id, 'Replied')}>
+                                    Replied
+                                  </button>
+                                )}
+                                {primaryContact && col.id === 'follow-up' && (
+                                  <button className="btn btn-cyan" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleSnoozeFollowUp(primaryContact.id)}>
+                                    +7d
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Filter controls */}
             <div className="glass-card" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', gap: '20px', alignItems: 'center' }}>
@@ -1284,7 +1798,7 @@ export default function App() {
             {/* Pipeline Table */}
             <div className="glass-card" style={{ padding: '0px', overflowX: 'auto' }}>
               {filteredJobs.length === 0 ? (
-                <div style={{ padding: '40px', textAlignment: 'center', color: 'var(--text-muted)' }}>
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                   <AlertCircle style={{ display: 'block', margin: '0 auto 12px auto' }} />
                   No jobs found matching the active filter.
                 </div>
@@ -1298,6 +1812,7 @@ export default function App() {
                       <th>Source</th>
                       <th>Relevance</th>
                       <th>Status</th>
+                      <th>Outreach</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
@@ -1458,6 +1973,32 @@ export default function App() {
                               <option key={s} value={s} style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', textTransform: 'none' }}>{s}</option>
                             ))}
                           </select>
+                        </td>
+                        <td>
+                          {(() => {
+                            const outreach = getJobOutreachInfo(job, contacts);
+                            if (outreach.stage === 'n/a') {
+                              return <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>—</span>;
+                            }
+                            const stageColors = {
+                              'to-reach-out': '#38bdf8',
+                              waiting: '#a78bfa',
+                              'follow-up': '#f59e0b',
+                              done: '#10b981'
+                            };
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                <span className="badge" style={{ fontSize: '0.65rem', borderColor: stageColors[outreach.stage], color: stageColors[outreach.stage] }}>
+                                  {outreach.label}
+                                </span>
+                                {outreach.stage === 'to-reach-out' && (
+                                  <button className="btn btn-cyan" style={{ padding: '2px 8px', fontSize: '0.65rem' }} onClick={() => handleCopyQuickMsgForJob(job)}>
+                                    Copy Msg
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -1666,6 +2207,67 @@ export default function App() {
                             onChange={(e) => setEditingHiringManager(e.target.value)} 
                           />
                         </div>
+
+                        {selectedJob.status === 'Applied' && (
+                          <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-cyan)', background: 'var(--bg-tertiary)', padding: '14px', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <h5 style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent-cyan)' }}>
+                                Outreach CRM
+                              </h5>
+                              <button className="btn btn-cyan" style={{ padding: '4px 10px', fontSize: '0.7rem' }} onClick={() => handleAddContactForJob(selectedJob)}>
+                                <Plus size={12} /> Add Contact
+                              </button>
+                            </div>
+                            {getContactsForJob(contacts, selectedJob).length === 0 ? (
+                              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                                Applied — now find the hiring manager on LinkedIn, add them here, send an invite, then mark as waiting.
+                              </p>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {getContactsForJob(contacts, selectedJob).map((contact) => {
+                                  const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
+                                  const daysLeft = daysUntil(contact.nextFollowUpAt);
+                                  return (
+                                    <div key={contact.id} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                                        <div>
+                                          <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{fullName}</div>
+                                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                            Status: {contact.status}
+                                            {contact.nextFollowUpAt && ` · Follow up ${daysLeft !== null && daysLeft <= 0 ? 'due' : `in ${daysLeft}d`}`}
+                                          </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                          {contact.profileUrl && (
+                                            <a href={contact.profileUrl} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem', textDecoration: 'none' }}>
+                                              Profile
+                                            </a>
+                                          )}
+                                          {(contact.status === 'To Contact' || contact.status === 'To Source') && (
+                                            <button className="btn btn-cyan" style={{ padding: '4px 8px', fontSize: '0.7rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Waiting')}>
+                                              Invite Sent
+                                            </button>
+                                          )}
+                                          {(contact.status === 'Waiting' || contact.status === 'Invite Sent' || contact.status === 'Follow Up Needed') && (
+                                            <>
+                                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem' }} onClick={() => handleSnoozeFollowUp(contact.id)}>
+                                                Remind 7d
+                                              </button>
+                                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Replied')}>
+                                                Replied
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Relevance Score (1-10)</label>
                           <input 
@@ -1882,6 +2484,21 @@ export default function App() {
                           </div>
                         )}
                         
+                        {selectedJob.suitabilityAssessment && (
+                          <CollapsibleInsightCard
+                            key={`assess-${selectedJob.id}`}
+                            title="🔍 Suitability Assessment"
+                            text={
+                              selectedJob.suitabilityScore
+                                ? `Suitability Score: ${selectedJob.suitabilityScore}/10\n\n${selectedJob.suitabilityAssessment}`
+                                : selectedJob.suitabilityAssessment
+                            }
+                            accentColor="#10b981"
+                            bgColor="rgba(16, 185, 129, 0.05)"
+                            borderColor="rgba(16, 185, 129, 0.2)"
+                          />
+                        )}
+
                         <div style={{ padding: '40px 20px', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: '12px' }}>
                           <p style={{ color: 'var(--text-muted)', marginBottom: '16px', fontSize: '0.9rem' }}>
                             {selectedJob.tailoredCv ? 'CV already generated. Click to regenerate.' : 'CV optimization and cover letter have not been generated yet.'}
@@ -1898,10 +2515,43 @@ export default function App() {
                         {selectedJob.tailoredCv && (
                           <>
                             {selectedJob.tailoringExplanation && (
-                              <div className="glass-card" style={{ background: 'rgba(99, 102, 241, 0.05)', borderColor: 'rgba(99, 102, 241, 0.2)', marginBottom: '16px', padding: '16px' }}>
-                                <h5 style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--accent-purple)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>✨ Tailoring Changes & Highlights</h5>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: '1.5', whiteSpace: 'pre-wrap', margin: 0 }}>
-                                  {selectedJob.tailoringExplanation}
+                              <CollapsibleInsightCard
+                                key={`tailor-${selectedJob.id}`}
+                                title="✨ Tailoring Changes & Highlights"
+                                text={selectedJob.tailoringExplanation}
+                                badge={formatModelBadge(selectedJob) || null}
+                                accentColor="var(--accent-purple)"
+                                bgColor="rgba(99, 102, 241, 0.05)"
+                                borderColor="rgba(99, 102, 241, 0.2)"
+                              />
+                            )}
+
+                            {(selectedJob.experienceGaps?.length > 0 || selectedJob.gapBridgeNote || selectedJob.transferableHighlights?.length > 0) && (
+                              <div className="glass-card" style={{ background: 'rgba(245, 158, 11, 0.08)', borderColor: 'rgba(245, 158, 11, 0.35)', marginBottom: '16px', padding: '16px' }}>
+                                <h5 style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#f59e0b', margin: '0 0 8px 0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                  ⚠️ Domain Gaps
+                                </h5>
+                                {selectedJob.experienceGaps?.length > 0 && (
+                                  <ul style={{ margin: '0 0 10px 16px', padding: 0, fontSize: '0.8rem', color: '#fcd34d', lineHeight: 1.5 }}>
+                                    {selectedJob.experienceGaps.map((gap, i) => (
+                                      <li key={i}>{gap}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                                {selectedJob.gapBridgeNote && (
+                                  <p style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: 1.5, whiteSpace: 'pre-wrap', margin: '0 0 8px 0', fontStyle: 'italic' }}>
+                                    {selectedJob.gapBridgeNote}
+                                  </p>
+                                )}
+                                {selectedJob.transferableHighlights?.length > 0 && (
+                                  <ul style={{ margin: '0 0 8px 16px', padding: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                                    {selectedJob.transferableHighlights.map((item, i) => (
+                                      <li key={i}>{item}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0 }}>
+                                  Bridge domain gaps honestly in the cover letter — never add disclaimers to the CV PDF.
                                 </p>
                               </div>
                             )}
@@ -1910,6 +2560,36 @@ export default function App() {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                 <label className="form-label" style={{ margin: 0 }}>Cover Letter (AI Generated & Relocation Oriented)</label>
                                 <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button 
+                                    className="btn btn-cyan"
+                                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                    onClick={async () => {
+                                      setIsGeneratingCoverLetter(true);
+                                      try {
+                                        const res = await fetch(`/api/jobs/${selectedJob.id}/cover-letter`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ customInstructions: editingCustomInstructions })
+                                        });
+                                        const resData = await res.json();
+                                        if (resData.success && resData.coverLetter) {
+                                          setEditingCoverLetter(resData.coverLetter);
+                                          const updatedJob = { ...selectedJob, coverLetter: resData.coverLetter };
+                                          setSelectedJob(updatedJob);
+                                          setJobs(prev => prev.map(j => j.id === selectedJob.id ? updatedJob : j));
+                                        } else {
+                                          alert('Error generating cover letter: ' + (resData.error || 'Unknown error'));
+                                        }
+                                      } catch (err) {
+                                        alert('Failed to generate cover letter: ' + err.message);
+                                      } finally {
+                                        setIsGeneratingCoverLetter(false);
+                                      }
+                                    }}
+                                    disabled={isGeneratingCoverLetter}
+                                  >
+                                    {isGeneratingCoverLetter ? 'Generating...' : 'Gen Cover Letter'}
+                                  </button>
                                   <button 
                                     className="btn btn-secondary"
                                     style={{ padding: '4px 8px', fontSize: '0.75rem', color: copiedCoverLetter ? 'var(--accent-green)' : 'inherit' }}
@@ -1975,8 +2655,24 @@ export default function App() {
 
                             <div style={{ marginBottom: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <label className="form-label" style={{ margin: 0 }}>Hiring Manager Message / Intro Message</label>
-                                <div style={{ display: 'flex', gap: '8px' }}>
+                                <label className="form-label" style={{ margin: 0 }}>Connect Message (Recruiter / HM)</label>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                  <button
+                                    className="btn btn-secondary"
+                                    style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                    onClick={() => {
+                                      const msg = buildQuickOutreachMessage({
+                                        title: selectedJob.title,
+                                        company: selectedJob.company,
+                                        contactFirstName: editingHiringManager?.startsWith('http') ? '' : editingHiringManager,
+                                        isRecruiter: !!selectedJob.isRecruiter
+                                      });
+                                      setEditingHiringManagerIntro(msg);
+                                      navigator.clipboard.writeText(msg);
+                                    }}
+                                  >
+                                    Quick Msg
+                                  </button>
                                   <button 
                                     className="btn btn-cyan"
                                     style={{ padding: '4px 8px', fontSize: '0.75rem' }}
@@ -2554,10 +3250,17 @@ export default function App() {
                 </div>
               </div>
               <div className="glass-card stat-card green" style={{ borderColor: 'rgba(167, 139, 250, 0.3)' }}>
-                <div className="stat-icon" style={{ color: '#a78bfa' }}><UserCheck size={20} /></div>
+                <div className="stat-icon" style={{ color: '#a78bfa' }}><Clock size={20} /></div>
                 <div className="stat-info">
-                  <h3>{contacts.filter(c => c.status === 'Invite Sent' || c.status === 'Follow Up Needed').length}</h3>
-                  <p>Outbound Active</p>
+                  <h3>{contacts.filter(c => c.status === 'Invite Sent' || c.status === 'Waiting').length}</h3>
+                  <p>Waiting for Reply</p>
+                </div>
+              </div>
+              <div className="glass-card stat-card green" style={{ borderColor: 'rgba(245, 158, 11, 0.3)' }}>
+                <div className="stat-icon" style={{ color: '#f59e0b' }}><Bell size={20} /></div>
+                <div className="stat-info">
+                  <h3>{contacts.filter(c => c.followUpNeeded || c.status === 'Follow Up Needed').length}</h3>
+                  <p>Follow Up Due</p>
                 </div>
               </div>
               <div className="glass-card stat-card green">
@@ -2572,7 +3275,7 @@ export default function App() {
             {/* Filter bar */}
             <div className="glass-card" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', gap: '20px', alignItems: 'center', marginBottom: '24px' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {['All', 'To Contact', 'Invite Sent', 'Replied', 'Follow Up Needed'].map(status => (
+                {['All', 'To Contact', 'To Source', 'Waiting', 'Invite Sent', 'Replied', 'Follow Up Needed'].map(status => (
                   <button 
                     key={status}
                     className={`btn ${contactStatusFilter === status ? 'btn-primary' : 'btn-secondary'}`}
@@ -2611,7 +3314,9 @@ export default function App() {
                     <tr>
                       <th>Name</th>
                       <th>Company</th>
+                      <th>Linked Role</th>
                       <th>Outreach Status</th>
+                      <th>Follow Up</th>
                       <th>Outbox Shortcut</th>
                       <th>Latest Message Snippet / Notes</th>
                       <th>Last Update</th>
@@ -2655,6 +3360,11 @@ export default function App() {
                               <span style={{ color: 'var(--text-muted)' }}>{contact.company || 'N/A'}</span>
                             </td>
                             <td>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                {contact.jobTitle || '—'}
+                              </span>
+                            </td>
+                            <td>
                               <select
                                 className={`status-select badge badge-${(contact.status || 'To Contact').toLowerCase().replace(/\s+/g, '-')}`}
                                 value={contact.status || 'To Contact'}
@@ -2670,10 +3380,21 @@ export default function App() {
                                   fontWeight: '600'
                                 }}
                               >
-                                {['To Contact', 'Invite Sent', 'Replied', 'Follow Up Needed'].map(s => (
+                                {['To Contact', 'To Source', 'Waiting', 'Invite Sent', 'Replied', 'Follow Up Needed'].map(s => (
                                   <option key={s} value={s} style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', textTransform: 'none' }}>{s}</option>
                                 ))}
                               </select>
+                            </td>
+                            <td>
+                              <span style={{ fontSize: '0.8rem', color: contact.followUpNeeded || contact.status === 'Follow Up Needed' ? '#f59e0b' : 'var(--text-muted)' }}>
+                                {contact.status === 'Waiting' || contact.status === 'Invite Sent'
+                                  ? (contact.nextFollowUpAt
+                                    ? (daysUntil(contact.nextFollowUpAt) <= 0 ? 'Due now' : `In ${daysUntil(contact.nextFollowUpAt)}d`)
+                                    : 'Waiting')
+                                  : contact.followUpNeeded || contact.status === 'Follow Up Needed'
+                                    ? 'Action needed'
+                                    : '—'}
+                              </span>
                             </td>
                             <td>
                               {contact.threadUrl ? (
@@ -2767,6 +3488,25 @@ export default function App() {
                       <input type="text" className="form-input" value={contactCompany} onChange={(e) => setContactCompany(e.target.value)} required />
                     </div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Linked Job Role</label>
+                      <select
+                        className="status-select"
+                        style={{ width: '100%', borderRadius: '8px' }}
+                        value={contactJobId || ''}
+                        onChange={(e) => {
+                          const job = jobs.find((j) => j.id === e.target.value);
+                          setContactJobId(e.target.value);
+                          setContactJobTitle(job?.title || '');
+                          if (job?.company && !contactCompany) setContactCompany(job.company);
+                        }}
+                      >
+                        <option value="">-- Optional: link to applied job --</option>
+                        {jobs.filter((j) => j.status === 'Applied' || j.status === 'Invited').map((job) => (
+                          <option key={job.id} value={job.id}>{job.title} @ {job.company}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">LinkedIn Profile URL</label>
                       <input type="url" className="form-input" value={contactProfileUrl} onChange={(e) => setContactProfileUrl(e.target.value)} placeholder="https://www.linkedin.com/in/..." />
                     </div>
@@ -2778,6 +3518,8 @@ export default function App() {
                       <label className="form-label">Outreach Status</label>
                       <select className="status-select" style={{ width: '100%', borderRadius: '8px' }} value={contactStatus} onChange={(e) => setContactStatus(e.target.value)}>
                         <option value="To Contact">To Contact</option>
+                        <option value="To Source">To Source (find HM)</option>
+                        <option value="Waiting">Waiting (invite sent)</option>
                         <option value="Invite Sent">Invite Sent</option>
                         <option value="Replied">Replied</option>
                         <option value="Follow Up Needed">Follow Up Needed</option>
@@ -2823,7 +3565,7 @@ export default function App() {
                     onChange={(e) => setSettings({ ...settings, geminiApiKey: e.target.value })} 
                   />
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    Recommended model: <code>gemini-2.5-flash</code>. Used by default for CV tailoring and job matching.
+                    Recommended model: <code>gemini-2.5-pro</code>. Used by default for CV tailoring and job matching.
                   </p>
                 </div>
 
@@ -2902,7 +3644,7 @@ export default function App() {
                     <code>{"{{name}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{summary}}"}</code>, 
                     <code>{"{{visa}}"}</code>, <code>{"{{address}}"}</code>, <code>{"{{experience}}"}</code>, 
                     <code>{"{{jobTitle}}"}</code>, <code>{"{{companyName}}"}</code>, <code>{"{{jobDescription}}"}</code>, 
-                    <code>{"{{customInstructions}}"}</code>.
+                    <code>{"{{detectedDomain}}"}</code>, <code>{"{{customInstructions}}"}</code>.
                   </p>
                 </div>
 

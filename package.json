@@ -9,7 +9,13 @@
     "client": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "npx playwright install chromium",
+    "server:persist-install": "node scripts/manage-daemon.js install",
+    "server:persist-uninstall": "node scripts/manage-daemon.js uninstall",
+    "server:persist-status": "node scripts/manage-daemon.js status",
+    "server:persist-restart": "node scripts/manage-daemon.js restart",
+    "server:persist-logs": "tail -n 100 -f logs/server.log",
+    "server:persist-errors": "tail -n 100 -f logs/server-error.log"
   },
   "dependencies": {
     "cors": "^2.8.5",

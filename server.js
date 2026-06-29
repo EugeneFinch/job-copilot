@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { runScraper, scrapeJobUrl } from './scripts/scraper.js';
 import multer from 'multer';
-import { tailorCvAndLetter, DEFAULT_SYSTEM_PROMPT } from './scripts/tailor.js';
+import { tailorCvAndLetter, DEFAULT_SYSTEM_PROMPT, generateCoverLetter } from './scripts/tailor.js';
 import { parsePlainCv } from './scripts/cv_parser.js';
 import { generatePdf } from './scripts/pdf_generator.js';
 import { runApply } from './scripts/apply.js';
@@ -30,6 +30,13 @@ app.use(express.json());
 
 // Serve static generated files
 app.use('/data/generated', express.static(path.join(__dirname, 'data/generated')));
+
+// Serve compiled frontend static files
+const distPath = path.join(__dirname, 'dist');
+const indexHtmlPath = path.join(distPath, 'index.html');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
 const SETTINGS_PATH = path.join(__dirname, 'data/settings.json');
 const JOBS_PATH = path.join(__dirname, 'data/jobs.json');
@@ -60,44 +67,109 @@ function writeContacts(data) {
   fs.writeFileSync(CONTACTS_PATH, JSON.stringify(data, null, 2), 'utf8');
 }
 
-function autoCreateContactFromJob(job) {
-  if (!job.hiringManager) return;
-  const contacts = readContacts();
-  const rawManager = job.hiringManager.trim();
-  const company = job.company ? job.company.trim() : '';
-  
-  // Clean name and URL
-  let profileUrl = '';
-  let name = rawManager;
-  if (rawManager.startsWith('http')) {
-    profileUrl = rawManager;
-    const match = rawManager.match(/\/in\/([^\/?#\s]+)/);
-    if (match && match[1]) {
-      name = match[1].replace(/[-_]/g, ' ');
-      name = name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    } else {
-      name = `${company} Hiring Manager`;
+const CRM_FOLLOW_UP_DAYS = 7;
+
+function addDaysIso(isoDate, days) {
+  const d = new Date(isoDate || Date.now());
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+function applyContactStatusFields(contact, updates = {}) {
+  const merged = { ...contact, ...updates };
+  const status = merged.status || 'To Contact';
+  const now = new Date().toISOString();
+  const statusChanged = updates.status && updates.status !== contact.status;
+
+  if (status === 'Invite Sent' || status === 'Waiting') {
+    if (!merged.inviteSentAt || statusChanged) {
+      merged.inviteSentAt = updates.inviteSentAt || now;
     }
+    if (!merged.nextFollowUpAt || statusChanged) {
+      merged.nextFollowUpAt = addDaysIso(merged.inviteSentAt, CRM_FOLLOW_UP_DAYS);
+    }
+    merged.followUpNeeded = false;
+    merged.followUpCount = merged.followUpCount || 0;
+  } else if (status === 'To Contact' || status === 'To Source') {
+    merged.followUpNeeded = true;
+  } else if (status === 'Follow Up Needed') {
+    merged.followUpNeeded = true;
+    if (statusChanged) {
+      merged.followUpCount = (merged.followUpCount || 0) + 1;
+    }
+  } else if (status === 'Replied') {
+    merged.followUpNeeded = false;
+    merged.nextFollowUpAt = '';
   }
 
-  const nameParts = name.split(' ');
-  const firstName = nameParts[0] || '';
-  const lastName = nameParts.slice(1).join(' ') || '';
+  merged.updatedAt = now;
+  return merged;
+}
 
-  // Check if a contact with this company and profileUrl (or name) already exists
-  const exists = contacts.find(c => {
-    const sameCompany = String(c.company || '').toLowerCase() === company.toLowerCase();
-    const sameUrl = profileUrl && c.profileUrl && String(c.profileUrl || '').toLowerCase() === profileUrl.toLowerCase();
-    const sameName = String(c.firstName || '').toLowerCase() === firstName.toLowerCase() && String(c.lastName || '').toLowerCase() === lastName.toLowerCase();
-    return sameCompany && (sameUrl || sameName);
+function processContactsForReminders(contacts) {
+  const now = Date.now();
+  let changed = false;
+  const processed = contacts.map((c) => {
+    if ((c.status === 'Invite Sent' || c.status === 'Waiting') && c.nextFollowUpAt) {
+      if (new Date(c.nextFollowUpAt).getTime() <= now) {
+        changed = true;
+        return applyContactStatusFields(c, { status: 'Follow Up Needed' });
+      }
+    }
+    return c;
   });
+  if (changed) writeContacts(processed);
+  return processed;
+}
 
-  if (!exists) {
-    const newContact = {
+function findContactForJob(contacts, job) {
+  const company = String(job.company || '').trim().toLowerCase();
+  const jobId = job.id;
+  return contacts.find((c) => {
+    if (jobId && c.jobId === jobId) return true;
+    if (!company) return false;
+    const sameCompany = String(c.company || '').trim().toLowerCase() === company;
+    const linkedTitle = String(c.jobTitle || '').trim().toLowerCase();
+    const jobTitle = String(job.title || '').trim().toLowerCase();
+    return sameCompany && linkedTitle && jobTitle && linkedTitle === jobTitle;
+  });
+}
+
+function autoCreateContactFromJob(job) {
+  if (!job || job.status !== 'Applied') return;
+  const contacts = readContacts();
+  const company = job.company ? job.company.trim() : '';
+  const jobId = job.id;
+  const jobTitle = job.title || '';
+
+  if (findContactForJob(contacts, job)) return;
+
+  if (job.hiringManager) {
+    const rawManager = job.hiringManager.trim();
+    let profileUrl = '';
+    let name = rawManager;
+    if (rawManager.startsWith('http')) {
+      profileUrl = rawManager;
+      const match = rawManager.match(/\/in\/([^\/?#\s]+)/);
+      if (match && match[1]) {
+        name = match[1].replace(/[-_]/g, ' ');
+        name = name.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      } else {
+        name = `${company} Hiring Manager`;
+      }
+    }
+
+    const nameParts = name.split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    const newContact = applyContactStatusFields({
       id: Math.random().toString(36).substring(2, 11),
       firstName,
       lastName,
       company,
+      jobId,
+      jobTitle,
       profileUrl,
       threadUrl: '',
       lastOutboundDate: new Date().toISOString(),
@@ -106,13 +178,43 @@ function autoCreateContactFromJob(job) {
       lastInboundSnippet: '',
       followUpNeeded: true,
       status: 'To Contact',
-      notes: `Auto-created from job: ${job.title}. AI Outreach Message: ${job.hiringManagerIntro || 'none'}`,
+      inviteSentAt: '',
+      nextFollowUpAt: '',
+      followUpCount: 0,
+      notes: `Auto-created from applied job: ${jobTitle}. AI Outreach Message: ${job.hiringManagerIntro || 'none'}`,
       updatedAt: new Date().toISOString()
-    };
+    });
     contacts.push(newContact);
     writeContacts(contacts);
     console.log(`[CRM] Auto-created contact ${name} for ${company}`);
+    return;
   }
+
+  const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`hiring manager ${company}`)}`;
+  const placeholder = applyContactStatusFields({
+    id: Math.random().toString(36).substring(2, 11),
+    firstName: 'Source',
+    lastName: 'Manager',
+    company,
+    jobId,
+    jobTitle,
+    profileUrl: searchUrl,
+    threadUrl: '',
+    lastOutboundDate: '',
+    lastOutboundSnippet: '',
+    lastInboundDate: '',
+    lastInboundSnippet: '',
+    followUpNeeded: true,
+    status: 'To Source',
+    inviteSentAt: '',
+    nextFollowUpAt: '',
+    followUpCount: 0,
+    notes: `Find hiring manager for applied role: ${jobTitle}`,
+    updatedAt: new Date().toISOString()
+  });
+  contacts.push(placeholder);
+  writeContacts(contacts);
+  console.log(`[CRM] Auto-created sourcing task for ${company} (${jobTitle})`);
 }
 
 function cleanJsonText(text) {
@@ -359,7 +461,7 @@ Return a JSON object containing the index of the best match and a brief reason:
   // Try Gemini first if key is available
   if (geminiApiKey) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
       response = await fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -487,7 +589,39 @@ async function filterAndDeduplicateJobsForCompany(companyName, newScrapedJobs, c
 // ----------------------------------------------------
 app.get('/api/contacts', (req, res) => {
   try {
-    res.json(readContacts());
+    let contacts = processContactsForReminders(readContacts());
+    if (req.query.due === 'true') {
+      const now = Date.now();
+      contacts = contacts.filter(
+        (c) =>
+          c.followUpNeeded ||
+          c.status === 'Follow Up Needed' ||
+          ((c.status === 'Invite Sent' || c.status === 'Waiting') &&
+            c.nextFollowUpAt &&
+            new Date(c.nextFollowUpAt).getTime() <= now)
+      );
+    }
+    if (req.query.jobId) {
+      contacts = contacts.filter((c) => c.jobId === req.query.jobId);
+    }
+    res.json(contacts);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jobs/:id/contacts', (req, res) => {
+  try {
+    const jobs = readJobs();
+    const job = jobs.find((j) => j.id === req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found.' });
+    const contacts = processContactsForReminders(readContacts()).filter(
+      (c) =>
+        c.jobId === job.id ||
+        (String(c.company || '').toLowerCase() === String(job.company || '').toLowerCase() &&
+          String(c.jobTitle || '').toLowerCase() === String(job.title || '').toLowerCase())
+    );
+    res.json({ success: true, data: contacts, job });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -505,26 +639,51 @@ app.post('/api/contacts', (req, res) => {
 app.post('/api/contacts/add', (req, res) => {
   try {
     const contacts = readContacts();
-    const newContact = { 
-      id: Math.random().toString(36).substring(2, 11),
-      firstName: '',
-      lastName: '',
-      company: '',
-      profileUrl: '',
-      threadUrl: '',
-      lastOutboundDate: '',
-      lastOutboundSnippet: '',
-      lastInboundDate: '',
-      lastInboundSnippet: '',
-      followUpNeeded: false,
-      status: 'To Contact',
-      notes: '',
-      ...req.body,
-      updatedAt: new Date().toISOString()
-    };
-    contacts.push(newContact);
-    writeContacts(contacts);
-    res.json({ success: true, data: newContact });
+    const { firstName, lastName, company, profileUrl } = req.body;
+
+    // Find existing contact
+    let existingIndex = -1;
+    if (profileUrl) {
+      existingIndex = contacts.findIndex(c => c.profileUrl && c.profileUrl.toLowerCase() === profileUrl.toLowerCase());
+    }
+    if (existingIndex === -1 && firstName && lastName && company) {
+      existingIndex = contacts.findIndex(c => 
+        (c.firstName || '').toLowerCase() === firstName.toLowerCase() &&
+        (c.lastName || '').toLowerCase() === lastName.toLowerCase() &&
+        (c.company || '').toLowerCase() === company.toLowerCase()
+      );
+    }
+
+    if (existingIndex !== -1) {
+      contacts[existingIndex] = applyContactStatusFields(contacts[existingIndex], req.body);
+      writeContacts(contacts);
+      res.json({ success: true, data: contacts[existingIndex], updated: true });
+    } else {
+      const newContact = applyContactStatusFields({
+        id: Math.random().toString(36).substring(2, 11),
+        firstName: '',
+        lastName: '',
+        company: '',
+        jobId: '',
+        jobTitle: '',
+        profileUrl: '',
+        threadUrl: '',
+        lastOutboundDate: '',
+        lastOutboundSnippet: '',
+        lastInboundDate: '',
+        lastInboundSnippet: '',
+        followUpNeeded: false,
+        status: 'To Contact',
+        inviteSentAt: '',
+        nextFollowUpAt: '',
+        followUpCount: 0,
+        notes: '',
+        ...req.body
+      });
+      contacts.push(newContact);
+      writeContacts(contacts);
+      res.json({ success: true, data: newContact });
+    }
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -537,8 +696,8 @@ app.put('/api/contacts/:id', (req, res) => {
     const existing = contacts.find(c => c.id === id);
     if (!existing) return res.status(404).json({ error: 'Contact not found.' });
 
-    const updatedContacts = contacts.map(c => 
-      c.id === id ? { ...c, ...req.body, updatedAt: new Date().toISOString() } : c
+    const updatedContacts = contacts.map((c) =>
+      c.id === id ? applyContactStatusFields(c, req.body) : c
     );
     writeContacts(updatedContacts);
     res.json({ success: true, data: updatedContacts.find(c => c.id === id) });
@@ -617,7 +776,7 @@ app.put('/api/jobs/:id', (req, res) => {
     if (updatedJob?.status && updatedJob.status !== existingJob.status) {
       pushJobToCrm(updatedJob);
     }
-    if (updatedJob && updatedJob.status === 'Applied' && updatedJob.hiringManager) {
+    if (updatedJob && updatedJob.status === 'Applied' && updatedJob.status !== existingJob.status) {
       autoCreateContactFromJob(updatedJob);
     }
     res.json({ success: true, data: updatedJob });
@@ -851,12 +1010,42 @@ app.post('/api/jobs/import', async (req, res) => {
             phone: settings.profile.phone,
             linkedin: settings.profile.linkedin,
             summary: tailorResult.summary,
+            coreSkills: tailorResult.coreSkills || '',
             experience: tailorResult.experience
           };
-          jobToSave.coverLetter = tailorResult.coverLetter;
-          jobToSave.whyInterested = tailorResult.whyInterested || '';
+          jobToSave.tailoredByModel = tailorResult.tailoredByModel || '';
+          jobToSave.detectedDomain = tailorResult.detectedDomain || '';
           jobToSave.tailoringExplanation = tailorResult.tailoringExplanation || '';
-          log(`[Auto-Tailor] Successfully tailored!`);
+          jobToSave.experienceGaps = tailorResult.experienceGaps || [];
+          jobToSave.gapBridgeNote = tailorResult.gapBridgeNote || '';
+          jobToSave.transferableHighlights = tailorResult.transferableHighlights || [];
+          jobToSave.timelineNotes = tailorResult.timelineNotes || [];
+          jobToSave.omittedRoles = tailorResult.omittedRoles || [];
+          jobToSave.bridgeRolesAdded = tailorResult.bridgeRolesAdded || [];
+          log(`[Auto-Tailor] Successfully tailored! (model: ${jobToSave.tailoredByModel || 'unknown'})`);
+
+          try {
+            const coverResult = await generateCoverLetter(
+              apiKeys,
+              settings.profile,
+              jobToSave.tailoredCv,
+              jobToSave.title,
+              jobToSave.company,
+              jobToSave.description,
+              settings.customInstructions,
+              jobToSave.isRecruiter,
+              {
+                experienceGaps: jobToSave.experienceGaps,
+                gapBridgeNote: jobToSave.gapBridgeNote,
+                transferableHighlights: jobToSave.transferableHighlights,
+                suitabilityAssessment: jobToSave.suitabilityAssessment || ''
+              }
+            );
+            jobToSave.coverLetter = coverResult.coverLetter;
+            jobToSave.coverLetterByModel = coverResult.generatedByModel;
+          } catch (coverErr) {
+            log(`[Auto-Tailor] Cover letter skipped: ${coverErr.message}`);
+          }
 
           log(`[Auto-PDF] Automatically generating CV PDF...`);
           const cleanCompany = (jobToSave.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
@@ -994,12 +1183,42 @@ app.post('/api/jobs/search', async (req, res) => {
             phone: settings.profile.phone,
             linkedin: settings.profile.linkedin,
             summary: tailorResult.summary,
+            coreSkills: tailorResult.coreSkills || '',
             experience: tailorResult.experience
           };
-          jobToSave.coverLetter = tailorResult.coverLetter;
-          jobToSave.whyInterested = tailorResult.whyInterested || '';
+          jobToSave.tailoredByModel = tailorResult.tailoredByModel || '';
+          jobToSave.detectedDomain = tailorResult.detectedDomain || '';
           jobToSave.tailoringExplanation = tailorResult.tailoringExplanation || '';
-          log(`[Auto-Tailor] Successfully tailored!`);
+          jobToSave.experienceGaps = tailorResult.experienceGaps || [];
+          jobToSave.gapBridgeNote = tailorResult.gapBridgeNote || '';
+          jobToSave.transferableHighlights = tailorResult.transferableHighlights || [];
+          jobToSave.timelineNotes = tailorResult.timelineNotes || [];
+          jobToSave.omittedRoles = tailorResult.omittedRoles || [];
+          jobToSave.bridgeRolesAdded = tailorResult.bridgeRolesAdded || [];
+          log(`[Auto-Tailor] Successfully tailored! (model: ${jobToSave.tailoredByModel || 'unknown'})`);
+
+          try {
+            const coverResult = await generateCoverLetter(
+              apiKeys,
+              settings.profile,
+              jobToSave.tailoredCv,
+              jobToSave.title,
+              jobToSave.company,
+              jobToSave.description,
+              settings.customInstructions,
+              jobToSave.isRecruiter,
+              {
+                experienceGaps: jobToSave.experienceGaps,
+                gapBridgeNote: jobToSave.gapBridgeNote,
+                transferableHighlights: jobToSave.transferableHighlights,
+                suitabilityAssessment: jobToSave.suitabilityAssessment || ''
+              }
+            );
+            jobToSave.coverLetter = coverResult.coverLetter;
+            jobToSave.coverLetterByModel = coverResult.generatedByModel;
+          } catch (coverErr) {
+            log(`[Auto-Tailor] Cover letter skipped: ${coverErr.message}`);
+          }
 
           log(`[Auto-PDF] Automatically generating CV PDF...`);
           const cleanCompany = (jobToSave.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
@@ -1090,15 +1309,105 @@ app.post('/api/jobs/:id/tailor', async (req, res) => {
       github: settings.profile.github,
       website: settings.profile.website,
       summary: result.summary,
+      coreSkills: result.coreSkills || '',
       experience: result.experience
     };
-    job.coverLetter = result.coverLetter;
-    job.whyInterested = result.whyInterested || '';
     job.tailoringExplanation = result.tailoringExplanation || '';
+    job.experienceGaps = result.experienceGaps || [];
+    job.gapBridgeNote = result.gapBridgeNote || '';
+    job.transferableHighlights = result.transferableHighlights || [];
+    job.timelineNotes = result.timelineNotes || [];
+    job.omittedRoles = result.omittedRoles || [];
+    job.bridgeRolesAdded = result.bridgeRolesAdded || [];
+    job.tailoredByModel = result.tailoredByModel || '';
+    job.detectedDomain = result.detectedDomain || '';
     job.lastActionDate = new Date().toISOString();
+    console.log(`[Tailor] Job ${job.id} CV by ${job.tailoredByModel || 'unknown'}`);
+    if (job.experienceGaps?.length) {
+      console.log(`[Tailor] Experience gaps flagged: ${job.experienceGaps.join('; ')}`);
+    }
+
+    try {
+      const coverResult = await generateCoverLetter(
+        apiKeys,
+        settings.profile,
+        job.tailoredCv,
+        job.title,
+        job.company,
+        job.description,
+        combinedInstructions,
+        job.isRecruiter,
+        {
+          experienceGaps: job.experienceGaps,
+          gapBridgeNote: job.gapBridgeNote,
+          transferableHighlights: job.transferableHighlights,
+          suitabilityAssessment: job.suitabilityAssessment || ''
+        }
+      );
+      job.coverLetter = coverResult.coverLetter;
+      job.coverLetterByModel = coverResult.generatedByModel;
+      console.log(`[Tailor] Job ${job.id} cover letter by ${job.coverLetterByModel}`);
+    } catch (coverErr) {
+      console.warn(`[Tailor] Cover letter generation failed: ${coverErr.message}`);
+      job.coverLetter = result.coverLetter || job.coverLetter || '';
+    }
 
     writeJobs(jobs);
     res.json(job);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/jobs/:id/cover-letter', async (req, res) => {
+  console.log(`[Server] POST /api/jobs/${req.params.id}/cover-letter received.`);
+  try {
+    const settings = readSettings();
+    const geminiApiKey = settings.geminiApiKey || (settings.deepSeekApiKey && (settings.deepSeekApiKey.startsWith('AIzaSy') || settings.deepSeekApiKey.startsWith('AQ.')) ? settings.deepSeekApiKey : '');
+    const deepSeekApiKey = settings.deepSeekApiKey && !settings.deepSeekApiKey.startsWith('AIzaSy') && !settings.deepSeekApiKey.startsWith('AQ.') ? settings.deepSeekApiKey : '';
+    const apiKeys = { geminiApiKey, deepSeekApiKey };
+
+    if (!geminiApiKey && !deepSeekApiKey) {
+      return res.status(400).json({ error: 'Please set your API key in Settings first.' });
+    }
+
+    const jobs = readJobs();
+    const job = jobs.find(j => j.id === req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found.' });
+    }
+
+    const jobSpecificInstructions = req.body?.customInstructions || job.customInstructions || '';
+    
+    // Combine global settings instructions with job-specific instructions
+    const combinedInstructions = [
+      settings.customInstructions,
+      jobSpecificInstructions
+    ].filter(Boolean).join('\n\n');
+
+    const coverResult = await generateCoverLetter(
+      apiKeys,
+      settings.profile,
+      job.tailoredCv || settings.profile,
+      job.title,
+      job.company,
+      job.description,
+      combinedInstructions,
+      job.isRecruiter,
+      {
+        experienceGaps: job.experienceGaps || [],
+        gapBridgeNote: job.gapBridgeNote || '',
+        transferableHighlights: job.transferableHighlights || [],
+        suitabilityAssessment: job.suitabilityAssessment || ''
+      }
+    );
+
+    job.coverLetter = coverResult.coverLetter;
+    job.coverLetterByModel = coverResult.generatedByModel;
+    job.lastActionDate = new Date().toISOString();
+    writeJobs(jobs);
+
+    res.json({ success: true, coverLetter: coverResult.coverLetter, generatedByModel: coverResult.generatedByModel });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1175,7 +1484,7 @@ ${formattedExperience || 'No experience bullets set'}
     // Try Gemini first
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1325,7 +1634,7 @@ Output format must be a valid JSON object matching this schema exactly:
     // Try Gemini first
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1477,7 +1786,7 @@ ${suitabilityAssessment ? `\n**Pre-Pipeline Suitability Assessment (Use this mat
     // Try Gemini
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
         
         // Map history to Gemini format (role must be 'user' or 'model')
         const contents = messages.map(msg => ({
@@ -1627,11 +1936,15 @@ ${formattedExperience || 'No experience bullets set'}
    - 5-6: Moderate match (some transferable PM skills, but significant domain/technical gaps or different industry focus).
    - 3-4: Low match (very few overlapping skills, major industry mismatch).
    - 1-2: Irrelevant (entirely unrelated field, e.g. medical, civil engineering, or hardware where the candidate lacks relevant background).
+4. **Hard domain caps (apply strictly):**
+   - Enterprise finance systems / ERP product ownership (GL, budgeting, Oracle, Anaplan, TM1): **max 5** if CV shows KPMG/audit/finance-control background plus payments or lending product leadership — still cap at **4** if no finance-side career foundation. **max 3** only if neither finance background nor relevant product work.
+   - Owning GL/ERP as a **product manager** (not auditor/controller) is still the main gap — say so clearly.
+   - Insurance / GAP / warranty / automotive finance product roles: **max 4** unless CV shows that domain.
 
 **Output Format:**
-You must return a single JSON object matching this structure exactly:
+You must return a single JSON object matching this structure exactly (do not output the placeholder angle brackets, replace with actual evaluated value):
 {
-  "score": 8, // Integer between 1 and 10
+  "score": <score_integer>, // Evaluated score integer between 1 and 10 based on rules above
   "explanation": "String (the bulleted explanation)"
 }
 `;
@@ -1643,7 +1956,7 @@ You must return a single JSON object matching this structure exactly:
     // Try Gemini first if key is available
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1796,7 +2109,7 @@ ${jobDescription || 'Not provided'}
     // Try Gemini
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2007,9 +2320,7 @@ app.post('/api/jobs/:id/apply', async (req, res) => {
     job.lastActionDate = new Date().toISOString();
     writeJobs(jobs);
     pushJobToCrm(job);
-    if (job.hiringManager) {
-      autoCreateContactFromJob(job);
-    }
+    autoCreateContactFromJob(job);
 
     log('Playwright application process closed.');
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -2020,6 +2331,30 @@ app.post('/api/jobs/:id/apply', async (req, res) => {
     res.end();
   }
 });
+
+// Route to serve the default CV
+app.get('/Eugene_Bochkov_CV.pdf', (req, res) => {
+  const cvPath = path.join(__dirname, 'Eugene_Bochkov_CV.pdf');
+  if (fs.existsSync(cvPath)) {
+    res.sendFile(cvPath);
+  } else {
+    res.status(404).send('Default CV not found');
+  }
+});
+
+// Fallback route for SPA client-side routing
+if (fs.existsSync(indexHtmlPath)) {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/data')) {
+      return next();
+    }
+    res.sendFile(indexHtmlPath, (err) => {
+      if (err) next(err);
+    });
+  });
+} else {
+  console.warn(`[Server] Dashboard not built — run "npm run build" (missing ${indexHtmlPath})`);
+}
 
 app.listen(PORT, () => {
   console.log(`100x job Server running on http://localhost:${PORT}`);

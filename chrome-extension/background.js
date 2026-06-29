@@ -414,6 +414,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return;
   }
 
+  if (request.action === 'setPendingConnectInvite') {
+    chrome.storage.local.set({ pendingConnectInvite: request.invite || null }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (request.action === 'getPendingConnectInvite') {
+    chrome.storage.local.get(['pendingConnectInvite'], (result) => {
+      sendResponse({ success: true, data: result.pendingConnectInvite || null });
+    });
+    return true;
+  }
+
+  if (request.action === 'clearPendingConnectInvite') {
+    chrome.storage.local.remove(['pendingConnectInvite'], () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
   if (request.action === 'solveCaptcha') {
     const apiKey = '8dba0b53c2c8d932e8d641190eac45a7';
     const captchaType = request.captchaType;
