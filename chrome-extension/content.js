@@ -8,6 +8,198 @@ let launcherElement = null;
 let pipelineLinked = false;
 let pipelineCheckDone = false;
 let chatMessages = [];
+let generatingCoverLetter = false;
+
+const COPILOT_DOMAINS = [
+  'linkedin.com',
+  'seek.com.au',
+  'indeed.com',
+  'greenhouse.io',
+  'lever.co',
+  'ashbyhq.com',
+  'workday.com',
+  'workdayjobs.com',
+  'bamboohr.com',
+  'workable.com',
+  'smartrecruiters.com',
+  'jobvite.com',
+  'breezy.hr',
+  'recruitee.com',
+  'personio.de',
+  'personio.com',
+  'myworkdayjobs.com'
+];
+
+const JOB_URL_PATTERNS = [
+  /\/careers?\//i,
+  /\/jobs?\//i,
+  /\/positions?\//i,
+  /\/opportunities?\//i,
+  /\/apply\/?$/i,
+  /\/application\/?$/i,
+  /\/hiring\//i,
+  /\/vacanc/i,
+  /\/role\//i
+];
+
+function capitalizeWord(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function companyFromHostname(hostname) {
+  const parts = hostname.replace(/^www\./, '').split('.');
+  if (parts.length >= 2) {
+    const name = parts[parts.length - 2];
+    if (['jobs', 'careers', 'apply', 'work', 'hiring'].includes(name.toLowerCase()) && parts.length >= 3) {
+      return capitalizeWord(parts[parts.length - 3]);
+    }
+    return capitalizeWord(name);
+  }
+  return capitalizeWord(parts[0] || 'Unknown');
+}
+
+function titleFromUrlSlug(url) {
+  try {
+    const segments = new URL(url).pathname.split('/').filter(Boolean);
+    let slug = segments[segments.length - 1] || '';
+    if (['apply', 'application'].includes(slug.toLowerCase()) && segments.length >= 2) {
+      slug = segments[segments.length - 2];
+    }
+    if (!slug || ['careers', 'career', 'jobs', 'job', 'positions', 'opportunities'].includes(slug.toLowerCase())) {
+      return '';
+    }
+    return slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return '';
+  }
+}
+
+function getCompanyFromPage() {
+  const ogSite = document.querySelector('meta[property="og:site_name"]')?.content;
+  if (ogSite) return ogSite.trim();
+
+  const title = document.title || '';
+  if (title.includes('—')) return title.split('—')[0].trim();
+  if (title.includes(' - ')) {
+    const parts = title.split(' - ');
+    if (parts.length >= 2) return parts[parts.length - 1].trim();
+  }
+  if (title.includes('|')) {
+    const parts = title.split('|');
+    if (parts.length >= 2) return parts[parts.length - 1].trim();
+  }
+  if (title.includes(' at ')) return title.split(' at ').pop().trim();
+
+  return companyFromHostname(window.location.hostname);
+}
+
+function extractLocationFromText(text) {
+  if (!text) return '';
+  const match = text.match(/(?:location|based in|office)[:\s]+([^\n•|]+)/i);
+  if (match) return match[1].trim();
+  const lower = text.toLowerCase();
+  if (lower.includes('sydney')) return 'Sydney';
+  if (lower.includes('melbourne')) return 'Melbourne';
+  if (lower.includes('remote')) return 'Remote';
+  return '';
+}
+
+function extractJobDescriptionFromPage() {
+  const selectors = [
+    '[class*="job-description"]',
+    '[class*="jobDescription"]',
+    '[class*="job_description"]',
+    '[data-testid*="description"]',
+    'article',
+    'main',
+    '[role="main"]'
+  ];
+  for (const sel of selectors) {
+    const el = document.querySelector(sel);
+    if (el?.innerText && el.innerText.length > 200) {
+      return el.innerText;
+    }
+  }
+
+  const headings = document.querySelectorAll('h2, h3, h4');
+  for (const h of headings) {
+    if (/about the role|job description|responsibilities|overview|what you.ll do/i.test(h.innerText)) {
+      const section = h.closest('section') || h.parentElement?.parentElement || h.parentElement;
+      if (section?.innerText && section.innerText.length > 200) {
+        return section.innerText;
+      }
+    }
+  }
+
+  return '';
+}
+
+function hasJobPostingSchema() {
+  const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    try {
+      const data = JSON.parse(script.textContent);
+      const items = Array.isArray(data) ? data : data['@graph'] ? data['@graph'] : [data];
+      if (items.some((item) => item?.['@type'] === 'JobPosting')) return true;
+    } catch {
+      // ignore malformed JSON-LD
+    }
+  }
+  return false;
+}
+
+function isGenericCareerPage(url) {
+  try {
+    const path = new URL(url).pathname;
+    return JOB_URL_PATTERNS.some((pattern) => pattern.test(path)) || hasJobPostingSchema();
+  } catch {
+    return false;
+  }
+}
+
+function isCopilotPage() {
+  const url = window.location.href;
+
+  if (url.includes('linkedin.com/in/')) return true;
+  if (COPILOT_DOMAINS.some((domain) => url.includes(domain))) return true;
+  if (isGenericCareerPage(url)) return true;
+
+  const h1 = document.querySelector('h1')?.innerText?.trim();
+  if (h1 && h1.length > 2 && h1.length < 120) {
+    const bodyText = (document.body?.innerText || '').slice(0, 8000).toLowerCase();
+    const jobSignals = [
+      'responsibilities',
+      'requirements',
+      'qualifications',
+      'apply now',
+      'job description',
+      'about the role',
+      'what you will',
+      'what you\'ll',
+      'we are looking',
+      'benefits',
+      'salary'
+    ];
+    const signalCount = jobSignals.filter((signal) => bodyText.includes(signal)).length;
+    if (signalCount >= 2) return true;
+
+    const hasApplyForm = document.querySelector('input[type="file"], input[type="email"], form[action*="apply"]');
+    const hasApplyBtn = Array.from(document.querySelectorAll('button, a')).some((el) =>
+      /apply|submit application/i.test(el.innerText || '')
+    );
+    if (hasApplyForm && hasApplyBtn) return true;
+  }
+
+  return false;
+}
+
+function tryInitCopilot() {
+  if (document.getElementById('ajf-launcher')) return true;
+  if (!isCopilotPage()) return false;
+  initCopilot();
+  return true;
+}
 
 // Initialize elements when script runs
 function initCopilot() {
@@ -31,165 +223,202 @@ function initCopilot() {
         </div>
         <button class="ajf-close-btn" id="ajf-close-sidebar">×</button>
       </div>
-
       <div class="ajf-content">
-        <!-- Prominent Top Status Card -->
-        <div class="ajf-top-status-card">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span class="ajf-label" style="text-transform: uppercase; font-weight: 700; font-size: 10px;">Pipeline Status</span>
-            <span class="ajf-badge ajf-badge-to-process" id="ajf-job-status">To Process</span>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button class="ajf-big-status-btn ajf-big-btn-applied" id="ajf-btn-mark-applied-top" title="Mark this job as Applied">
-              ✅ Applied
-            </button>
-            <button class="ajf-big-status-btn ajf-big-btn-skipped" id="ajf-btn-mark-skipped-top" title="Mark this job as Skipped">
-              🚫 Skipped
-            </button>
-          </div>
-        </div>
-
-        <div class="ajf-card" id="ajf-link-section" style="display: none; margin-top: -8px;">
-          <div class="ajf-form-group" style="margin-bottom: 0;">
-            <label class="ajf-label">🔗 Link to Job in Pipeline</label>
-            <select class="ajf-input" id="ajf-select-pipeline-job" style="margin-top: 4px;">
-              <option value="">-- Select a Job to Link --</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="ajf-section-title" style="display: flex !important; justify-content: space-between !important; align-items: center !important;">
-          <span>Job Details (Parsed)</span>
-          <button id="ajf-btn-reparse" style="background: none !important; border: none !important; color: #6366f1 !important; cursor: pointer !important; font-size: 11px !important; font-weight: 600 !important; padding: 2px 6px !important; display: flex !important; align-items: center !important; gap: 4px !important; text-transform: none !important;">🔄 Re-parse</button>
-        </div>
-        <div class="ajf-card">
-          <div class="ajf-form-group">
-            <label class="ajf-label">Job Title</label>
-            <input type="text" class="ajf-input" id="ajf-input-title">
-          </div>
-          <div class="ajf-form-group">
-            <label class="ajf-label">Company</label>
-            <input type="text" class="ajf-input" id="ajf-input-company">
-            <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px;">
-              <input type="checkbox" id="ajf-input-is-recruiter" style="margin: 0; width: 13px; height: 13px; cursor: pointer;">
-              <label for="ajf-input-is-recruiter" class="ajf-label" style="margin: 0; cursor: pointer; user-select: none; font-size: 11px !important; text-transform: none !important; color: #9ca3af; font-weight: normal;">Is Recruiter Posting</label>
+        <!-- JOB-SPECIFIC VIEW -->
+        <div id="ajf-job-view-content">
+          <!-- Prominent Top Status Card -->
+          <div class="ajf-top-status-card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span class="ajf-label" style="text-transform: uppercase; font-weight: 700; font-size: 10px;">Pipeline Status</span>
+              <span class="ajf-badge ajf-badge-to-process" id="ajf-job-status">To Process</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="ajf-big-status-btn ajf-big-btn-applied" id="ajf-btn-mark-applied-top" title="Mark this job as Applied">
+                ✅ Applied
+              </button>
+              <button class="ajf-big-status-btn ajf-big-btn-skipped" id="ajf-btn-mark-skipped-top" title="Mark this job as Skipped">
+                🚫 Skipped
+              </button>
             </div>
           </div>
-          <div class="ajf-form-group">
-            <label class="ajf-label">Location</label>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              <select class="ajf-input" id="ajf-select-location" style="margin: 0; background: #1e293b !important; color: #f8fafc !important; border: 1px solid #475569 !important; border-radius: 6px !important; padding: 6px 8px !important; font-size: 12px !important; cursor: pointer;">
-                <option value="" disabled>-- Select Location --</option>
-                <option value="Sydney">Sydney</option>
-                <option value="Melbourne">Melbourne</option>
-                <option value="Other">Other</option>
+
+          <div class="ajf-card" id="ajf-link-section" style="display: none; margin-top: -8px;">
+            <div class="ajf-form-group" style="margin-bottom: 0;">
+              <label class="ajf-label">🔗 Link to Job in Pipeline</label>
+              <select class="ajf-input" id="ajf-select-pipeline-job" style="margin-top: 4px;">
+                <option value="">-- Select a Job to Link --</option>
               </select>
-              <input type="text" class="ajf-input" id="ajf-input-location" style="margin: 0; display: none;" placeholder="Type location manually...">
             </div>
           </div>
-          <div class="ajf-form-group">
-            <label class="ajf-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span>Hiring Manager Link/Name</span>
-              <span style="font-size: 9px; opacity: 0.6; text-transform: none; font-weight: normal; color: #9ca3af;">Alt+M to Gen</span>
-            </label>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              <input type="text" class="ajf-input" id="ajf-input-hiring-manager" placeholder="LinkedIn URL or Name" style="flex: 1; margin: 0; min-width: 0;">
-              <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-gen-hiring-intro" style="padding: 6px 10px !important; width: auto !important; height: auto !important; font-size: 11px !important; margin: 0;" title="Generate Hiring Manager Intro (Alt+M)">Gen Intro</button>
+
+          <div class="ajf-section-title" style="display: flex !important; justify-content: space-between !important; align-items: center !important;">
+            <span>Job Details (Parsed)</span>
+            <button id="ajf-btn-reparse" style="background: none !important; border: none !important; color: #6366f1 !important; cursor: pointer !important; font-size: 11px !important; font-weight: 600 !important; padding: 2px 6px !important; display: flex !important; align-items: center !important; gap: 4px !important; text-transform: none !important;">🔄 Re-parse</button>
+          </div>
+          <div class="ajf-card">
+            <div class="ajf-form-group">
+              <label class="ajf-label">Job Title</label>
+              <input type="text" class="ajf-input" id="ajf-input-title">
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">Company</label>
+              <input type="text" class="ajf-input" id="ajf-input-company">
+              <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px;">
+                <input type="checkbox" id="ajf-input-is-recruiter" style="margin: 0; width: 13px; height: 13px; cursor: pointer;">
+                <label for="ajf-input-is-recruiter" class="ajf-label" style="margin: 0; cursor: pointer; user-select: none; font-size: 11px !important; text-transform: none !important; color: #9ca3af; font-weight: normal;">Is Recruiter Posting</label>
+              </div>
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">Location</label>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <select class="ajf-input" id="ajf-select-location" style="margin: 0; background: #1e293b !important; color: #f8fafc !important; border: 1px solid #475569 !important; border-radius: 6px !important; padding: 6px 8px !important; font-size: 12px !important; cursor: pointer;">
+                  <option value="" disabled>-- Select Location --</option>
+                  <option value="Sydney">Sydney</option>
+                  <option value="Melbourne">Melbourne</option>
+                  <option value="Other">Other</option>
+                </select>
+                <input type="text" class="ajf-input" id="ajf-input-location" style="margin: 0; display: none;" placeholder="Type location manually...">
+              </div>
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span>Hiring Manager Link/Name</span>
+                <span style="font-size: 9px; opacity: 0.6; text-transform: none; font-weight: normal; color: #9ca3af;">Alt+M to Gen</span>
+              </label>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="text" class="ajf-input" id="ajf-input-hiring-manager" placeholder="LinkedIn URL or Name" style="flex: 1; margin: 0; min-width: 0;">
+                <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-gen-hiring-intro" style="padding: 6px 10px !important; width: auto !important; height: auto !important; font-size: 11px !important; margin: 0;" title="Generate Hiring Manager Intro (Alt+M)">Gen Intro</button>
+              </div>
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">Job URL</label>
+              <input type="text" class="ajf-input" id="ajf-input-url" disabled>
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">Suitability Score (1-10)</label>
+              <input type="number" class="ajf-input" id="ajf-input-score" min="1" max="10" placeholder="Run Assess Match to set score">
             </div>
           </div>
-          <div class="ajf-form-group">
-            <label class="ajf-label">Job URL</label>
-            <input type="text" class="ajf-input" id="ajf-input-url" disabled>
-          </div>
-          <div class="ajf-form-group">
-            <label class="ajf-label">Suitability Score (1-10)</label>
-            <input type="number" class="ajf-input" id="ajf-input-score" min="1" max="10" placeholder="Run Assess Match to set score">
-          </div>
-        </div>
 
-        <div class="ajf-section-title">Automation Console</div>
-        <p class="ajf-workflow-hint" id="ajf-workflow-hint">1. Save → 2. Tailor CV → 3. Autofill</p>
-        <div id="ajf-custom-instructions-container" style="margin-top: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label style="font-size: 11px !important; color: #9ca3af !important; text-transform: uppercase; font-weight: 600; margin: 0;">Job-Specific Custom Instructions</label>
-            <button class="ajf-btn" id="ajf-btn-save-instructions" style="padding: 2px 6px !important; font-size: 10px !important; height: auto !important; width: auto !important; margin: 0 !important; display: none;">Save Context</button>
+          <div class="ajf-section-title">Automation Console</div>
+          <p class="ajf-workflow-hint" id="ajf-workflow-hint">1. Save → 2. Tailor CV → 3. Autofill</p>
+          <div id="ajf-custom-instructions-container" style="margin-top: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label style="font-size: 11px !important; color: #9ca3af !important; text-transform: uppercase; font-weight: 600; margin: 0;">Job-Specific Custom Instructions</label>
+              <button class="ajf-btn" id="ajf-btn-save-instructions" style="padding: 2px 6px !important; font-size: 10px !important; height: auto !important; width: auto !important; margin: 0 !important; display: none;">Save Context</button>
+            </div>
+            <textarea class="ajf-input" id="ajf-job-custom-instructions" placeholder="e.g. Spenmo: Highlight experience with regional payment compliance workflows. Vincere: focus on multi-client ATS architecture." style="height: 60px !important; font-size: 12px !important; resize: vertical; padding: 6px 8px !important; min-height: 50px !important; background: #1e293b !important; color: #f8fafc !important; border: 1px solid #475569 !important; border-radius: 6px !important;"></textarea>
           </div>
-          <textarea class="ajf-input" id="ajf-job-custom-instructions" placeholder="e.g. Spenmo: Highlight experience with regional payment compliance workflows. Vincere: focus on multi-client ATS architecture." style="height: 60px !important; font-size: 12px !important; resize: vertical; padding: 6px 8px !important; min-height: 50px !important; background: #1e293b !important; color: #f8fafc !important; border: 1px solid #475569 !important; border-radius: 6px !important;"></textarea>
-        </div>
 
-        <div class="ajf-actions">
-          <button class="ajf-btn ajf-btn-primary" id="ajf-btn-save">
-            💾 Save to Pipeline
-          </button>
-          <div style="display: flex; align-items: center; gap: 8px; margin: 2px 0 6px 4px;">
-            <input type="checkbox" id="ajf-input-auto-process" style="margin: 0; width: 14px; height: 14px; cursor: pointer;" checked>
-            <label for="ajf-input-auto-process" class="ajf-label" style="margin: 0; cursor: pointer; font-weight: 600; color: #a78bfa; font-size: 11px; text-transform: none;">Auto-Process after saving (runs Assess & Tailor)</label>
-          </div>
-          <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-assess">
-            🔍 Assess Match
-          </button>
-          <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-tailor" disabled>
-            ✨ Tailor CV & Letter
-          </button>
-          <button class="ajf-btn ajf-btn-success" id="ajf-btn-autofill" disabled>
-            ⚡ Autofill Application
-          </button>
-          <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-download-pdf" style="display:none;">
-            📄 Open Tailored PDF
-          </button>
-        </div>
-
-        <div id="ajf-assess-section" style="display: none; margin-top: 10px;">
-          <div class="ajf-section-title">🔍 Suitability Assessment</div>
-          <div class="ajf-card" style="background: rgba(16, 185, 129, 0.08) !important; border-color: rgba(16, 185, 129, 0.2) !important;">
-            <p class="ajf-text-sm" id="ajf-assess-result" style="font-size: 12px !important; line-height: 1.45 !important; color: #d1d5db !important; margin: 0 !important; white-space: pre-wrap !important; font-style: italic !important;"></p>
-          </div>
-        </div>
-
-        <div id="ajf-tailor-explanation-section" style="display: none; margin-top: 10px;">
-          <div class="ajf-section-title">✨ Tailoring Changes & Highlights</div>
-          <div class="ajf-card" style="background: rgba(99, 102, 241, 0.08) !important; border-color: rgba(99, 102, 241, 0.2) !important;">
-            <p class="ajf-text-sm" id="ajf-tailor-explanation" style="font-size: 12px !important; line-height: 1.45 !important; color: #d1d5db !important; margin: 0 !important; white-space: pre-wrap !important; font-style: italic !important;"></p>
-          </div>
-        </div>
-
-        <div id="ajf-export-section" style="display: none; margin-top: 10px;">
-          <div class="ajf-section-title">📋 Export Artifacts</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-cover-letter" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1;">
-              📋 Cover Letter
+          <div class="ajf-actions">
+            <button class="ajf-btn ajf-btn-primary" id="ajf-btn-save">
+              💾 Save to Pipeline
             </button>
-            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-why-interested" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1;">
-              📋 Why Interested
+            <div style="display: flex; align-items: center; gap: 8px; margin: 2px 0 6px 4px;">
+              <input type="checkbox" id="ajf-input-auto-process" style="margin: 0; width: 14px; height: 14px; cursor: pointer;" checked>
+              <label for="ajf-input-auto-process" class="ajf-label" style="margin: 0; cursor: pointer; font-weight: 600; color: #a78bfa; font-size: 11px; text-transform: none;">Auto-Process after saving (runs Assess & Tailor)</label>
+            </div>
+            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-assess">
+              🔍 Assess Match
             </button>
-            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-hiring-intro" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1; display: none;">
-              📋 Hiring Intro
+            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-tailor" disabled>
+              ✨ Tailor CV & Letter
             </button>
-            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-job-details" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1;">
-              📋 Job Details
+            <button class="ajf-btn ajf-btn-success" id="ajf-btn-autofill" disabled>
+              ⚡ Autofill Application
+            </button>
+            <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-download-pdf" style="display:none;">
+              📄 Open Tailored PDF
             </button>
           </div>
-        </div>
 
-        <div class="ajf-section-title" id="ajf-chat-title">Job Assistant Chat</div>
-        <div class="ajf-card" id="ajf-chat-section">
-          <div class="ajf-chat-history" id="ajf-chat-history">
-            <div class="ajf-chat-msg ajf-chat-msg-ai">Hi Eugene! I know about your CV and this role. Ask me anything about this job/company or ask me to draft a custom message/cover letter adjustment.</div>
+          <div id="ajf-assess-section" style="display: none; margin-top: 10px;">
+            <div class="ajf-section-title">🔍 Suitability Assessment</div>
+            <div class="ajf-card" style="background: rgba(16, 185, 129, 0.08) !important; border-color: rgba(16, 185, 129, 0.2) !important;">
+              <p class="ajf-text-sm" id="ajf-assess-result" style="font-size: 12px !important; line-height: 1.45 !important; color: #d1d5db !important; margin: 0 !important; white-space: pre-wrap !important; font-style: italic !important;"></p>
+            </div>
           </div>
-          <div class="ajf-chat-suggestions" id="ajf-chat-suggestions">
-            <span class="ajf-chat-pill" data-prompt="Is this job relevant to me?">Is it relevant?</span>
-            <span class="ajf-chat-pill" data-prompt="Why am I interested in this role?">Why interested?</span>
-            <span class="ajf-chat-pill" data-prompt="Draft an extremely short LinkedIn connection invite message to the hiring manager for this role. It MUST be strictly under 300 characters (including spaces). Focus on APAC fintech/payments product leadership and permanent residency (PR).">Hiring Manager Invite</span>
-            <span class="ajf-chat-pill" data-prompt="Draft a 'Top Choice' message explaining my fit.">Top Choice message</span>
+
+          <div id="ajf-tailor-explanation-section" style="display: none; margin-top: 10px;">
+            <div class="ajf-section-title">✨ Tailoring Changes & Highlights</div>
+            <div class="ajf-card" style="background: rgba(99, 102, 241, 0.08) !important; border-color: rgba(99, 102, 241, 0.2) !important;">
+              <p class="ajf-text-sm" id="ajf-tailor-explanation" style="font-size: 12px !important; line-height: 1.45 !important; color: #d1d5db !important; margin: 0 !important; white-space: pre-wrap !important; font-style: italic !important;"></p>
+            </div>
           </div>
-          <div class="ajf-chat-input-container">
-            <textarea class="ajf-input ajf-chat-input" id="ajf-chat-input" placeholder="Ask a question or draft a message..." rows="1"></textarea>
-            <button class="ajf-chat-send-btn" id="ajf-btn-chat-send">Send</button>
+
+          <div id="ajf-export-section" style="display: none; margin-top: 10px;">
+            <div class="ajf-section-title">📋 Export Artifacts</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-cover-letter" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1;">
+                📋 Cover Letter
+              </button>
+              <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-why-interested" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1;">
+                📋 Why Interested
+              </button>
+              <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-hiring-intro" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1; display: none;">
+                📋 Hiring Intro
+              </button>
+              <button class="ajf-btn ajf-btn-secondary" id="ajf-btn-copy-job-details" style="font-size: 11px !important; padding: 5px 10px !important; flex: 1;">
+                📋 Job Details
+              </button>
+            </div>
+          </div>
+
+          <div class="ajf-section-title" id="ajf-chat-title">Job Assistant Chat</div>
+          <div class="ajf-card" id="ajf-chat-section">
+            <div class="ajf-chat-history" id="ajf-chat-history">
+              <div class="ajf-chat-msg ajf-chat-msg-ai">Hi Eugene! I know about your CV and this role. Ask me anything about this job/company or ask me to draft a custom message/cover letter adjustment.</div>
+            </div>
+            <div class="ajf-chat-suggestions" id="ajf-chat-suggestions">
+              <span class="ajf-chat-pill" data-prompt="Is this job relevant to me?">Is it relevant?</span>
+              <span class="ajf-chat-pill" data-prompt="Why am I interested in this role?">Why interested?</span>
+              <span class="ajf-chat-pill" data-prompt="Draft an extremely short LinkedIn connection invite message to the hiring manager for this role. It MUST be strictly under 300 characters (including spaces). Focus on APAC fintech/payments product leadership and permanent residency (PR).">Hiring Manager Invite</span>
+              <span class="ajf-chat-pill" data-prompt="Draft a 'Top Choice' message explaining my fit.">Top Choice message</span>
+            </div>
+            <div class="ajf-chat-input-container">
+              <textarea class="ajf-input ajf-chat-input" id="ajf-chat-input" placeholder="Ask a question or draft a message..." rows="1"></textarea>
+              <button class="ajf-chat-send-btn" id="ajf-btn-chat-send">Send</button>
+            </div>
+          </div>
+
+          <div class="ajf-section-title" id="ajf-logs-title" style="display:none;">Logs</div>
+          <div class="ajf-log-box" id="ajf-logs" style="display:none;"></div>
+        </div> <!-- end of ajf-job-view-content -->
+
+        <!-- PROFILE-OUTREACH VIEW -->
+        <div id="ajf-profile-helper-view" style="display: none; padding: 5px 0;">
+          <h3 class="ajf-section-title" style="margin-top: 0; font-size: 13px !important; color: #a78bfa !important;">👤 Profile Outreach Helper</h3>
+          <div class="ajf-card" style="background: #1e293b !important; padding: 12px !important; border: 1px solid #475569 !important;">
+            <div class="ajf-form-group">
+              <label class="ajf-label">👤 Profile Contact Name</label>
+              <input type="text" class="ajf-input" id="ajf-profile-contact-name" placeholder="Parsing name..." style="background: #0f172a !important;">
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">📁 Applied Job Context</label>
+              <select class="ajf-input" id="ajf-profile-job-select" style="background: #0f172a !important; color: #f8fafc !important; border: 1px solid #475569 !important; border-radius: 6px !important; padding: 6px 8px !important; font-size: 12px !important; cursor: pointer; width: 100%;">
+                <option value="">-- Loading Applied Jobs --</option>
+              </select>
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">Outreach Status</label>
+              <select class="ajf-input" id="ajf-profile-contact-status" style="background: #0f172a !important; color: #f8fafc !important; border: 1px solid #475569 !important; border-radius: 6px !important; padding: 6px 8px !important; font-size: 12px !important; cursor: pointer; width: 100%;">
+                <option value="To Contact">To Contact</option>
+                <option value="Invite Sent" selected>Invite Sent</option>
+                <option value="Replied">Replied</option>
+              </select>
+            </div>
+            <div class="ajf-form-group">
+              <label class="ajf-label">💬 Tailored Connection Invite</label>
+              <textarea class="ajf-input" id="ajf-profile-outreach-text" style="height: 110px !important; font-size: 12px !important; resize: vertical; background: #0f172a !important;" placeholder="Select a job to pre-fill..."></textarea>
+            </div>
+            <button class="ajf-btn ajf-btn-primary" id="ajf-btn-copy-profile-message" style="margin-top: 8px; font-weight: bold; background: #6366f1 !important; color: #ffffff !important; border: none !important;">
+              📋 Copy & Save to CRM
+            </button>
+            <div id="ajf-profile-crm-status" style="font-size: 12px; color: #10b981; margin-top: 10px; text-align: center; display: none; font-weight: bold; padding: 4px; background: rgba(16, 185, 129, 0.1); border-radius: 4px;">
+              ✓ Message Copied & Saved to Contacts CRM!
+            </div>
           </div>
         </div>
-
-        <div class="ajf-section-title" id="ajf-logs-title" style="display:none;">Logs</div>
-        <div class="ajf-log-box" id="ajf-logs" style="display:none;"></div>
       </div>
     </div>
   `;
@@ -221,11 +450,37 @@ function initCopilot() {
 
   // Export buttons
   document.getElementById('ajf-btn-copy-cover-letter').addEventListener('click', () => {
+    if (generatingCoverLetter) return;
+
     if (currentScrapedJob?.coverLetter) {
       navigator.clipboard.writeText(currentScrapedJob.coverLetter);
       showToast('Copied Cover Letter to clipboard');
     } else {
-      showToast('No Cover Letter available');
+      if (!currentScrapedJob?.id) {
+        showToast('Save to pipeline first');
+        return;
+      }
+      generatingCoverLetter = true;
+      updateActionButtons();
+      
+      const customInstructionsInput = document.getElementById('ajf-job-custom-instructions');
+      const customInstructions = customInstructionsInput ? customInstructionsInput.value : '';
+
+      sendExtensionMessage({
+        action: 'generateCoverLetter',
+        jobId: currentScrapedJob.id,
+        customInstructions
+      }, (response) => {
+        generatingCoverLetter = false;
+        if (response && response.success && response.data?.coverLetter) {
+          currentScrapedJob.coverLetter = response.data.coverLetter;
+          navigator.clipboard.writeText(response.data.coverLetter);
+          showToast('Cover letter generated and copied!');
+        } else {
+          showToast('Failed to generate cover letter: ' + (response?.error || 'Unknown error'));
+        }
+        updateActionButtons();
+      });
     }
   });
   document.getElementById('ajf-btn-copy-why-interested').addEventListener('click', () => {
@@ -357,7 +612,7 @@ function initCopilot() {
             sendExtensionMessage({ action: 'openTab', url: pdfUrl }, (res) => {
               logToConsole('✓ PDF open request sent to background script.');
             });
-            logToConsole(`Local file path: /Users/eugene/Coding/job-search/data/generated/${pdfFilename}`);
+            logToConsole(`Saved to: data/generated/${pdfFilename}`);
           } else {
             logToConsole(`Failed to compile PDF: ${pdfResponse?.error || 'Unknown server error'}`);
           }
@@ -387,6 +642,8 @@ function initCopilot() {
     autoProcessCheckbox.addEventListener('change', updateDynamicUI);
   }
   updateDynamicUI();
+
+  setupProfileHelperEvents();
 
   // Trigger auto re-parse on startup to wait for SPA hydration
   runSpaAutoReparse();
@@ -618,7 +875,7 @@ function updateActionButtons() {
     saveBtn.disabled = false;
   }
   tailorBtn.disabled = !pipelineCheckDone || !inDb;
-  autofillBtn.disabled = !pipelineCheckDone || !tailored;
+  autofillBtn.disabled = !pipelineCheckDone;
   downloadBtn.style.display = tailored ? 'flex' : 'none';
 
   const hasIntro = !!job?.hiringManagerIntro;
@@ -631,16 +888,30 @@ function updateActionButtons() {
 
   document.getElementById('ajf-export-section').style.display = showExport ? 'block' : 'none';
 
-  tailorBtn.title = inDb ? 'Generate tailored CV and cover letter' : 'Save to pipeline first';
-  autofillBtn.title = tailored ? 'Fill this application form' : 'Tailor CV first';
+  const copyCoverLetterBtn = document.getElementById('ajf-btn-copy-cover-letter');
+  if (copyCoverLetterBtn) {
+    if (generatingCoverLetter) {
+      copyCoverLetterBtn.innerHTML = '⏳ Generating...';
+      copyCoverLetterBtn.disabled = true;
+    } else if (job?.coverLetter) {
+      copyCoverLetterBtn.innerHTML = '📋 Copy Cover Letter';
+      copyCoverLetterBtn.disabled = false;
+    } else {
+      copyCoverLetterBtn.innerHTML = '⚡ Generate Cover Letter';
+      copyCoverLetterBtn.disabled = false;
+    }
+  }
+
+  tailorBtn.title = inDb ? 'Generate tailored CV' : 'Save to pipeline first';
+  autofillBtn.title = 'Fill this application form';
 
   if (hint) {
     if (!inDb) {
-      hint.textContent = 'Step 1: Click Save to Pipeline — then Tailor and Autofill unlock.';
+      hint.textContent = 'Autofill is active (standard CV). Click Save to Pipeline to unlock tailoring.';
     } else if (!tailored) {
-      hint.textContent = 'Step 2: Click Tailor CV & Letter — then Autofill unlocks.';
+      hint.textContent = 'Autofill is active (standard CV). Click Tailor CV to customize.';
     } else {
-      hint.textContent = 'Ready — Autofill and Open PDF are available.';
+      hint.textContent = 'Ready — Autofill (tailored CV) and Open PDF are available.';
     }
   }
 }
@@ -707,6 +978,20 @@ function runSpaAutoReparse() {
   if (spaTimer) clearTimeout(spaTimer);
   retryCount = 0;
 
+  const url = window.location.href;
+  if (url.includes('linkedin.com/in/')) {
+    // Clear profile helper UI fields to avoid stale display
+    const nameInput = document.getElementById('ajf-profile-contact-name');
+    if (nameInput) nameInput.value = 'Parsing name...';
+    const outreachText = document.getElementById('ajf-profile-outreach-text');
+    if (outreachText) outreachText.value = '';
+    const statusSuccess = document.getElementById('ajf-profile-crm-status');
+    if (statusSuccess) statusSuccess.style.display = 'none';
+
+    spaTimer = setTimeout(attemptReparse, 800);
+    return;
+  }
+
   // Clear UI fields immediately to avoid stale data display
   const titleInput = document.getElementById('ajf-input-title');
   if (titleInput) titleInput.value = 'Loading job details...';
@@ -724,6 +1009,24 @@ function runSpaAutoReparse() {
 }
 
 function attemptReparse() {
+  const url = window.location.href;
+  if (url.includes('linkedin.com/in/')) {
+    // Toggle sidebar views
+    const jobContent = document.getElementById('ajf-job-view-content');
+    const profileContent = document.getElementById('ajf-profile-helper-view');
+    if (jobContent) jobContent.style.display = 'none';
+    if (profileContent) profileContent.style.display = 'block';
+
+    setupProfileOutreachView();
+    return;
+  }
+
+  // Toggle sidebar views
+  const jobContent = document.getElementById('ajf-job-view-content');
+  const profileContent = document.getElementById('ajf-profile-helper-view');
+  if (jobContent) jobContent.style.display = 'block';
+  if (profileContent) profileContent.style.display = 'none';
+
   const scraped = extractJobDetails();
   const titleEmpty = !scraped.title || scraped.title === 'Job Opportunity' || scraped.title.trim().length === 0;
   const descEmpty = !scraped.description || scraped.description.length < 150;
@@ -758,12 +1061,255 @@ function handleReparseJob() {
   pipelineLinked = false;
   pipelineCheckDone = false;
   clearChat();
+
+  const url = window.location.href;
+  if (url.includes('linkedin.com/in/')) {
+    attemptReparse();
+    showToast('Profile page re-parsed successfully!');
+    return;
+  }
+
   currentScrapedJob = extractJobDetails();
   currentScrapedJob.url = canonicalJobUrl(currentScrapedJob.url);
   populateUIFields();
   updateActionButtons();
   checkExistingJob();
   showToast('Page re-parsed successfully!');
+}
+
+function getLinkedInProfileName() {
+  const selectors = [
+    'h1.text-heading-xlarge',
+    '.pv-text-details__left-panel h1',
+    '.pv-top-card-layout__title',
+    'h1'
+  ];
+  for (const selector of selectors) {
+    const el = document.querySelector(selector);
+    if (el) {
+      const text = el.innerText.trim();
+      if (text && text.length < 100) {
+        const cleaned = extractCleanName(text);
+        if (cleaned && cleaned !== 'LinkedIn' && !cleaned.toLowerCase().includes('sign in')) {
+          return cleaned;
+        }
+      }
+    }
+  }
+
+  const title = document.title;
+  if (title && title.includes('|')) {
+    const namePart = title.split('|')[0].trim();
+    if (namePart && namePart.toLowerCase() !== 'linkedin') {
+      return extractCleanName(namePart);
+    }
+  }
+  if (title && title.includes('-')) {
+    const namePart = title.split('-')[0].trim();
+    if (namePart && namePart.toLowerCase() !== 'linkedin') {
+      return extractCleanName(namePart);
+    }
+  }
+  return '';
+}
+
+function cleanProfileNameForTemplate(fullName) {
+  if (!fullName) return '';
+  let name = fullName.replace(/\s*\([^)]*\)/g, '');
+  name = name.replace(/,\s*(?:Ph\.?D\.?|PMP|MBA|M\.?S\.?|B\.?S\.?)\b/gi, '');
+  name = name.replace(/[\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]/g, '');
+  name = extractCleanName(name);
+  return name;
+}
+
+function updateOutreachTemplate() {
+  const select = document.getElementById('ajf-profile-job-select');
+  if (!select) return;
+  const selectedOption = select.options[select.selectedIndex];
+  if (!selectedOption || !selectedOption.value) {
+    document.getElementById('ajf-profile-outreach-text').value = '';
+    return;
+  }
+
+  const company = selectedOption.dataset.company || '';
+  const role = selectedOption.dataset.title || '';
+
+  const rawName = document.getElementById('ajf-profile-contact-name').value || '';
+  const cleanName = cleanProfileNameForTemplate(rawName);
+  const firstName = cleanName.split(' ')[0] || '';
+
+  let greeting = 'Hi';
+  if (firstName) {
+    greeting = `Hi ${firstName}`;
+  }
+
+  const msg = `${greeting}, Eugene here, just applied for the ${role} role at ${company} and wanted to connect directly. Would love to chat if you're open to it.`;
+
+  document.getElementById('ajf-profile-outreach-text').value = msg;
+}
+
+function setupProfileOutreachView() {
+  const rawName = getLinkedInProfileName();
+  const cleanName = cleanProfileNameForTemplate(rawName);
+
+  const nameInput = document.getElementById('ajf-profile-contact-name');
+  if (nameInput) {
+    nameInput.value = cleanName || 'Hiring Manager';
+  }
+
+  const jobSelect = document.getElementById('ajf-profile-job-select');
+  if (jobSelect) {
+    jobSelect.innerHTML = '<option value="">-- Loading Applied Jobs --</option>';
+  }
+
+  sendExtensionMessage({ action: 'getJobs' }, (response) => {
+    if (response && response.success && Array.isArray(response.data)) {
+      const jobs = response.data;
+
+      const sortedJobs = jobs.sort((a, b) => {
+        const statusA = a.status || '';
+        const statusB = b.status || '';
+        if (statusA === 'Applied' && statusB !== 'Applied') return -1;
+        if (statusA !== 'Applied' && statusB === 'Applied') return 1;
+
+        const dateA = new Date(a.updatedAt || a.scrapedAt || 0);
+        const dateB = new Date(b.updatedAt || b.scrapedAt || 0);
+        return dateB - dateA;
+      });
+
+      if (jobSelect) {
+        jobSelect.innerHTML = '';
+        if (sortedJobs.length === 0) {
+          jobSelect.innerHTML = '<option value="">No jobs found in pipeline</option>';
+        } else {
+          let bestMatchId = '';
+          const pageText = document.body.innerText.toLowerCase();
+
+          sortedJobs.forEach(job => {
+            const option = document.createElement('option');
+            option.value = job.id;
+            option.textContent = `[${job.status || 'To Process'}] ${job.company || 'Unknown'} - ${job.title || 'Unknown'}`;
+            option.dataset.company = job.company || '';
+            option.dataset.title = job.title || '';
+            jobSelect.appendChild(option);
+
+            if (job.company && job.company.length > 2 && !bestMatchId) {
+              if (pageText.includes(job.company.toLowerCase())) {
+                bestMatchId = job.id;
+              }
+            }
+          });
+
+          if (bestMatchId) {
+            jobSelect.value = bestMatchId;
+          } else {
+            jobSelect.value = sortedJobs[0].id;
+          }
+        }
+      }
+
+      updateOutreachTemplate();
+    } else {
+      if (jobSelect) {
+        jobSelect.innerHTML = '<option value="">Failed to load jobs</option>';
+      }
+    }
+  });
+}
+
+function setupProfileHelperEvents() {
+  const nameInput = document.getElementById('ajf-profile-contact-name');
+  const jobSelect = document.getElementById('ajf-profile-job-select');
+  const statusSelect = document.getElementById('ajf-profile-contact-status');
+  const copyBtn = document.getElementById('ajf-btn-copy-profile-message');
+
+  if (nameInput) {
+    nameInput.addEventListener('input', updateOutreachTemplate);
+  }
+  if (jobSelect) {
+    jobSelect.addEventListener('change', updateOutreachTemplate);
+  }
+  if (statusSelect) {
+    statusSelect.addEventListener('change', updateOutreachTemplate);
+  }
+  if (copyBtn) {
+    copyBtn.addEventListener('click', handleCopyAndSaveProfileOutreach);
+  }
+}
+
+function handleCopyAndSaveProfileOutreach() {
+  const outreachText = document.getElementById('ajf-profile-outreach-text').value || '';
+  if (!outreachText) {
+    showToast('No outreach message to copy!');
+    return;
+  }
+
+  navigator.clipboard.writeText(outreachText).then(() => {
+    showToast('Message copied to clipboard!');
+  }).catch(err => {
+    console.error('Failed to copy text: ', err);
+    showToast('Failed to copy to clipboard');
+  });
+
+  const rawName = document.getElementById('ajf-profile-contact-name').value || '';
+  const cleanName = cleanProfileNameForTemplate(rawName);
+  const nameParts = cleanName.split(' ');
+  const firstName = nameParts[0] || '';
+  const lastName = nameParts.slice(1).join(' ') || '';
+
+  const jobSelect = document.getElementById('ajf-profile-job-select');
+  const selectedOption = jobSelect.options[jobSelect.selectedIndex];
+  const company = selectedOption ? (selectedOption.dataset.company || '') : '';
+  const role = selectedOption ? (selectedOption.dataset.title || '') : '';
+
+  const statusSelect = document.getElementById('ajf-profile-contact-status');
+  const status = statusSelect ? statusSelect.value : 'Invite Sent';
+
+  const contact = {
+    firstName,
+    lastName,
+    company,
+    profileUrl: window.location.href.split('?')[0].split('#')[0],
+    threadUrl: '',
+    lastOutboundDate: new Date().toISOString(),
+    lastOutboundSnippet: outreachText,
+    lastInboundDate: '',
+    lastInboundSnippet: '',
+    followUpNeeded: status === 'To Contact' || status === 'Follow Up Needed',
+    status,
+    notes: `Outreach for ${role} role at ${company}. Sent message: "${outreachText}"`
+  };
+
+  const statusMsg = document.getElementById('ajf-profile-crm-status');
+  if (statusMsg) {
+    statusMsg.innerText = '⌛ Saving to Contacts CRM...';
+    statusMsg.style.display = 'block';
+    statusMsg.style.background = 'rgba(245, 158, 11, 0.1)';
+    statusMsg.style.color = '#f59e0b';
+  }
+
+  sendExtensionMessage({ action: 'addContact', contact }, (response) => {
+    if (response && response.success) {
+      showToast('✓ Saved to CRM!');
+      if (statusMsg) {
+        statusMsg.innerText = '✓ Message Copied & Saved to Contacts CRM!';
+        statusMsg.style.background = 'rgba(16, 185, 129, 0.1)';
+        statusMsg.style.color = '#10b981';
+        statusMsg.style.display = 'block';
+        setTimeout(() => {
+          statusMsg.style.display = 'none';
+        }, 5000);
+      }
+    } else {
+      showToast('Failed to save to CRM');
+      if (statusMsg) {
+        statusMsg.innerText = `✗ Save failed: ${response?.error || 'Unknown error'}`;
+        statusMsg.style.background = 'rgba(239, 68, 68, 0.1)';
+        statusMsg.style.color = '#ef4444';
+        statusMsg.style.display = 'block';
+      }
+    }
+  });
 }
 
 function getLinkedInLocation() {
@@ -1016,6 +1562,32 @@ function extractJobDetails() {
     company = document.querySelector('[data-testid="inlineHeader-companyName"] a, [data-testid="inlineHeader-companyName"], .jobsearch-CompanyInfoWithoutHeaderImage a, .jobsearch-InlineCompanyRating div, [class*="InlineCompanyRating"] div')?.innerText || '';
     location = document.querySelector('[data-testid="inlineHeader-companyLocation"], .jobsearch-JobInfoHeader-subtitle div:last-child, .jobsearch-JobInfoHeader-subtitle [class*="Location"]')?.innerText || 'Australia';
     description = document.querySelector('#jobDescriptionText, .jobsearch-jobDescriptionText')?.innerText || '';
+  } else if (isGenericCareerPage(url) || isCopilotPage()) {
+    title = document.querySelector('h1')?.innerText || '';
+    company = getCompanyFromPage();
+    location = extractLocationFromText(document.body?.innerText || '');
+    description = extractJobDescriptionFromPage();
+
+    if (!title) {
+      title = titleFromUrlSlug(url);
+    }
+
+    const schemaScripts = document.querySelectorAll('script[type="application/ld+json"]');
+    for (const script of schemaScripts) {
+      try {
+        const data = JSON.parse(script.textContent);
+        const items = Array.isArray(data) ? data : data['@graph'] ? data['@graph'] : [data];
+        const posting = items.find((item) => item?.['@type'] === 'JobPosting');
+        if (posting) {
+          title = posting.title || title;
+          company = posting.hiringOrganization?.name || company;
+          location = posting.jobLocation?.address?.addressLocality || posting.jobLocation?.name || location;
+          description = posting.description || description;
+        }
+      } catch {
+        // ignore malformed JSON-LD
+      }
+    }
   }
 
   // Fallbacks
@@ -1748,10 +2320,14 @@ async function handleAutofill() {
     const pWebsite = profile.website || '';
     const pVisa = profile.visa || '';
 
-    const coverLetter = currentScrapedJob.coverLetter || '';
-    const pdfUrl = `http://localhost:3004${currentScrapedJob.pdfPath}`;
-    const cleanCompany = (currentScrapedJob.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-    const pdfFilename = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+    const coverLetter = (currentScrapedJob && currentScrapedJob.coverLetter) || '';
+    const pdfUrl = (currentScrapedJob && currentScrapedJob.pdfPath) 
+      ? `http://localhost:3004${currentScrapedJob.pdfPath}` 
+      : `http://localhost:3004/Eugene_Bochkov_CV.pdf`;
+    const cleanCompany = ((currentScrapedJob && currentScrapedJob.company) || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
+    const pdfFilename = (currentScrapedJob && currentScrapedJob.pdfPath)
+      ? `Eugene_bochkov_CV_${cleanCompany}.pdf`
+      : 'Eugene_Bochkov_CV.pdf';
 
     logToConsole('Analyzing application fields...');
     const formElements = document.querySelectorAll('input, textarea, select');
@@ -2414,8 +2990,15 @@ function appendChatMessage(role, content) {
   chatHistory.scrollTop = chatHistory.scrollHeight;
 }
 
-// Start Copilot
-initCopilot();
+// Start Copilot (deferred init supports SPAs like zedai.dev that hydrate after load)
+tryInitCopilot();
+
+let initAttempts = 0;
+const initInterval = setInterval(() => {
+  if (tryInitCopilot() || initAttempts++ >= 20) {
+    clearInterval(initInterval);
+  }
+}, 1000);
 
 // Watch for SPA URL changes
 let lastUrl = window.location.href;
@@ -2423,6 +3006,8 @@ const urlObserver = new MutationObserver(() => {
   const currentUrl = window.location.href;
   if (currentUrl !== lastUrl) {
     lastUrl = currentUrl;
+    tryInitCopilot();
+    if (!document.getElementById('ajf-launcher')) return;
     logToConsole('URL change detected (SPA). Rechecking pipeline shortly...');
     clearLogs();
     runSpaAutoReparse();
@@ -2523,6 +3108,30 @@ setInterval(() => {
     if (updated) {
       autoSaveJobDetails();
     }
+  }
+}, 2000);
+
+// Periodically refresh parsed details on generic career SPAs (e.g. zedai.dev)
+setInterval(() => {
+  const url = window.location.href;
+  if (!document.getElementById('ajf-launcher')) {
+    tryInitCopilot();
+    return;
+  }
+  if (url.includes('linkedin.com') || url.includes('indeed.com')) return;
+  if (!isGenericCareerPage(url) && !isCopilotPage()) return;
+  if (!currentScrapedJob) return;
+
+  const scraped = extractJobDetails();
+  const titleImproved = scraped.title && scraped.title !== 'Job Opportunity' &&
+    (!currentScrapedJob.title || currentScrapedJob.title === 'Job Opportunity' || currentScrapedJob.title.length < scraped.title.length);
+  const descImproved = scraped.description && scraped.description.length > (currentScrapedJob.description?.length || 0) + 100;
+
+  if (titleImproved || descImproved) {
+    currentScrapedJob = { ...currentScrapedJob, ...scraped, url: canonicalJobUrl(scraped.url) };
+    populateUIFields();
+    updateActionButtons();
+    logToConsole('✓ SPA job details refreshed from page.');
   }
 }, 2000);
 

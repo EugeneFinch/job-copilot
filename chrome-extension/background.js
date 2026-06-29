@@ -238,6 +238,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'generateCoverLetter') {
+    fetch(`${API_BASE}/api/jobs/${request.jobId}/cover-letter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customInstructions: request.customInstructions })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          sendResponse({ success: false, error: data.error });
+        } else {
+          sendResponse({ success: true, data });
+        }
+      })
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (request.action === 'generatePdf') {
     fetch(`${API_BASE}/api/jobs/${request.jobId}/pdf`, {
       method: 'POST'
@@ -263,6 +281,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return;
         }
         sendResponse({ success: true, data });
+      })
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'addContact') {
+    fetch(`${API_BASE}/api/contacts/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request.contact)
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          sendResponse({ success: false, error: data.error });
+        } else {
+          sendResponse({ success: true, data });
+        }
       })
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;

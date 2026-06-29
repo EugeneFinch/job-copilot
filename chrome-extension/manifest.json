@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "100x job Copilot",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Auto-apply and job scraping copilot for 100x job.",
   "icons": {
     "16": "icon16.png",
@@ -31,10 +31,31 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "*://*.linkedin.com/*",
+        "*://*.seek.com.au/*",
+        "*://*.indeed.com/*",
+        "*://*.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://*.ashbyhq.com/*",
+        "*://*/*/careers/*",
+        "*://*/*/careers",
+        "*://*/*/jobs/*",
+        "*://*/*/job/*",
+        "*://*/*/positions/*",
+        "*://*/*/opportunities/*",
+        "*://*/*/apply/*",
+        "*://*/*/application/*",
+        "*://*.workday.com/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.bamboohr.com/*",
+        "*://*.workable.com/*",
+        "*://*.smartrecruiters.com/*",
+        "*://zedai.dev/*"
+      ],
       "js": ["content.js"],
       "css": ["copilot.css"],
-      "all_frames": true
+      "all_frames": false
     }
   ]
 }
