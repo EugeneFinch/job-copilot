@@ -11,6 +11,7 @@ let chatMessages = [];
 let generatingCoverLetter = false;
 let activityLogs = [];
 let activityExpanded = false;
+let extensionDisconnected = false;
 
 const RECRUITER_AGENCIES = [
   'hays', 'onset', 'wow recruitment', 'latitude it', 'salt', 'talent international',
@@ -20,7 +21,7 @@ const RECRUITER_AGENCIES = [
   'tribe', 'reo group', 'denovo', 'sourced', 'g2', 'kinexus', 'm&t resources',
   'polyglot', 'peoplebank', 'talenza', 'trs resourcing', 'sirius', 'bluefin',
   'concept recruitment', 'method recruitment', 'mitchellake', 'xpand', 'interpro',
-  'robert walters', 'executive search'
+  'robert walters', 'executive search', 'cox purtell', 'purtell staffing'
 ];
 
 const COPILOT_DOMAINS = [
@@ -356,26 +357,43 @@ function initCopilot() {
                 <input type="text" class="ajf-input ajf-input-compact" id="ajf-input-company">
               </div>
             </div>
-            <div class="ajf-form-group ajf-form-group-compact">
-              <label class="ajf-label">Location</label>
-              <select class="ajf-input ajf-input-compact" id="ajf-select-location" style="margin: 0; cursor: pointer;">
-                <option value="" disabled>—</option>
-                <option value="Sydney">Sydney</option>
-                <option value="Melbourne">Melbourne</option>
-                <option value="Other">Other</option>
-              </select>
-              <input type="text" class="ajf-input ajf-input-compact" id="ajf-input-location" style="margin: 0; display: none;" placeholder="Other…">
+            <div class="ajf-compact-grid ajf-compact-grid-2">
+              <div class="ajf-form-group ajf-form-group-compact">
+                <label class="ajf-label">Location</label>
+                <select class="ajf-input ajf-input-compact" id="ajf-select-location" style="margin: 0; cursor: pointer;">
+                  <option value="" disabled>—</option>
+                  <option value="Sydney">Sydney</option>
+                  <option value="Melbourne">Melbourne</option>
+                  <option value="Other">Other</option>
+                </select>
+                <input type="text" class="ajf-input ajf-input-compact" id="ajf-input-location" style="margin: 0; display: none;" placeholder="Other…">
+              </div>
+              <div class="ajf-form-group ajf-form-group-compact" style="display: flex; align-items: flex-end;">
+                <label class="ajf-checkbox-row" for="ajf-input-is-recruiter" style="margin: 0; padding: 0 12px; height: var(--ajf-control-height); box-sizing: border-box; display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%;">
+                  <input type="checkbox" id="ajf-input-is-recruiter" style="margin: 0;">
+                  <span style="font-size: var(--ajf-font-base); font-weight: 500; color: var(--ajf-text-primary); user-select: none;">Recruiter posting</span>
+                </label>
+              </div>
             </div>
-            <label class="ajf-checkbox-row" for="ajf-input-is-recruiter">
-              <input type="checkbox" id="ajf-input-is-recruiter">
-              <span>Recruiter posting</span>
-            </label>
+            <div class="ajf-form-group ajf-form-group-compact" style="margin-top: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="ajf-label" style="margin: 0;">Hiring Manager / Contact</label>
+                <button type="button" id="ajf-btn-capture-hm" class="ajf-flow-action-link" style="margin: 0; padding: 0;">Capture HM</button>
+              </div>
+              <input type="text" class="ajf-input ajf-input-compact" id="ajf-input-hiring-manager" placeholder="LinkedIn URL or Name" style="width: 100%; box-sizing: border-box; margin-bottom: 6px;">
+              <div id="ajf-hm-capture-status" class="ajf-hm-status" style="display: none; margin-bottom: 6px; font-size: 11px;"></div>
+              <div class="ajf-btn-row ajf-outreach-actions" style="margin: 0; display: flex; gap: 6px;">
+                <button type="button" class="ajf-btn ajf-btn-secondary ajf-btn-xs" id="ajf-btn-open-hm-profile" style="display: none; flex: 1; padding: 4px 8px; font-weight: 600; font-size: 11px; height: 28px !important; min-height: 28px !important; justify-content: center; align-items: center;">Open Profile</button>
+                <button type="button" class="ajf-btn ajf-btn-primary ajf-btn-xs" id="ajf-btn-quick-connect-msg" style="flex: 1; padding: 4px 8px; font-weight: 600; font-size: 11px; height: 28px !important; min-height: 28px !important; justify-content: center; align-items: center;">Copy Invite</button>
+              </div>
+            </div>
             <div class="ajf-save-block">
               <button class="ajf-btn ajf-btn-primary ajf-btn-save-prominent" id="ajf-btn-save">Save to Pipeline</button>
               <label class="ajf-auto-process-wrap ajf-auto-process-block" for="ajf-input-auto-process" title="Assess + Tailor + PDF after save">
                 <input type="checkbox" id="ajf-input-auto-process" checked>
                 <span>Auto: Assess → Tailor → PDF</span>
               </label>
+              <button type="button" id="ajf-btn-save-later" class="ajf-flow-action-link" style="display: none; align-self: center; margin-top: 2px;">Bookmark for later</button>
             </div>
             <input type="text" class="ajf-input ajf-input-compact ajf-url-hidden" id="ajf-input-url" disabled tabindex="-1" aria-hidden="true">
             <div class="ajf-card-inset ajf-link-inset" id="ajf-link-section" style="display: none;">
@@ -436,21 +454,28 @@ function initCopilot() {
                 <textarea class="ajf-input ajf-input-compact" id="ajf-cover-letter-preview" readonly rows="2"></textarea>
               </div>
             </div>
-            </div>
 
             <div class="ajf-panel-divider"></div>
 
             <div class="ajf-outreach-compact" id="ajf-block-outreach">
               <div class="ajf-outreach-head">
                 <span id="ajf-outreach-role-context" class="ajf-outreach-role"></span>
-                <button type="button" id="ajf-btn-capture-hm" class="ajf-flow-action-link">Capture HM</button>
               </div>
-              <input type="text" class="ajf-input ajf-input-compact" id="ajf-input-hiring-manager" placeholder="LinkedIn /in/ profile">
-              <div id="ajf-hm-capture-status" class="ajf-hm-status" style="display: none;"></div>
               <textarea class="ajf-input ajf-input-compact" id="ajf-connect-message-preview" readonly rows="4" placeholder="Invite message (after save)"></textarea>
-              <div class="ajf-btn-row ajf-outreach-actions">
-                <button class="ajf-btn ajf-btn-secondary ajf-btn-xs" id="ajf-btn-open-hm-profile" style="display: none;">Open</button>
-                <button class="ajf-btn ajf-btn-primary ajf-btn-xs" id="ajf-btn-quick-connect-msg">Copy Invite</button>
+            </div>
+
+            <div class="ajf-outreach-compact ajf-recruiter-email-fallback" id="ajf-recruiter-outreach" style="display: none;">
+              <div class="ajf-outreach-head">
+                <span class="ajf-outreach-role">Email fallback</span>
+                <button type="button" id="ajf-btn-toggle-recruiter-email" class="ajf-flow-action-link">Show</button>
+              </div>
+              <div id="ajf-recruiter-email-fields" style="display: none;">
+                <input type="email" class="ajf-input ajf-input-compact" id="ajf-recruiter-email" placeholder="recruiter@agency.com">
+                <textarea class="ajf-input ajf-input-compact" id="ajf-recruiter-email-draft" readonly rows="3" placeholder="Email draft…"></textarea>
+                <div class="ajf-btn-row ajf-outreach-actions">
+                  <button type="button" class="ajf-btn ajf-btn-secondary ajf-btn-xs" id="ajf-btn-copy-recruiter-email">Copy email</button>
+                  <button type="button" class="ajf-btn ajf-btn-secondary ajf-btn-xs" id="ajf-btn-open-recruiter-mailto">Open mail</button>
+                </div>
               </div>
             </div>
           </div>
@@ -530,6 +555,7 @@ function initCopilot() {
   launcherElement.addEventListener('click', toggleSidebar);
   document.getElementById('ajf-close-sidebar').addEventListener('click', toggleSidebar);
   document.getElementById('ajf-btn-save').addEventListener('click', handleSaveOrOpenPdf);
+  document.getElementById('ajf-btn-save-later').addEventListener('click', handleSaveForLater);
   document.getElementById('ajf-btn-assess').addEventListener('click', handleAssessMatch);
   document.getElementById('ajf-btn-reparse').addEventListener('click', handleReparseJob);
   document.getElementById('ajf-btn-tailor').addEventListener('click', handleTailorJob);
@@ -583,12 +609,53 @@ function initCopilot() {
       input.addEventListener('blur', autoSaveJobDetails);
     }
   });
+
+  const toggleRecruiterEmailBtn = document.getElementById('ajf-btn-toggle-recruiter-email');
+  if (toggleRecruiterEmailBtn) {
+    toggleRecruiterEmailBtn.addEventListener('click', () => {
+      const fields = document.getElementById('ajf-recruiter-email-fields');
+      if (!fields) return;
+      const show = fields.style.display === 'none';
+      fields.style.display = show ? 'flex' : 'none';
+      fields.style.flexDirection = 'column';
+      fields.style.gap = '8px';
+      toggleRecruiterEmailBtn.innerText = show ? 'Hide' : 'Show';
+    });
+  }
+
+  const copyRecruiterEmailBtn = document.getElementById('ajf-btn-copy-recruiter-email');
+  if (copyRecruiterEmailBtn) {
+    copyRecruiterEmailBtn.addEventListener('click', handleCopyRecruiterEmail);
+  }
+  const openRecruiterMailBtn = document.getElementById('ajf-btn-open-recruiter-mailto');
+  if (openRecruiterMailBtn) {
+    openRecruiterMailBtn.addEventListener('click', handleOpenRecruiterMailto);
+  }
+  const recruiterEmailInput = document.getElementById('ajf-recruiter-email');
+  if (recruiterEmailInput) {
+    recruiterEmailInput.addEventListener('change', () => {
+      if (currentScrapedJob) {
+        currentScrapedJob.recruiterEmail = recruiterEmailInput.value.trim();
+        refreshRecruiterEmailDraft();
+        if (pipelineLinked && currentScrapedJob.id) {
+          sendExtensionMessage({
+            action: 'updateJob',
+            jobId: currentScrapedJob.id,
+            updates: { recruiterEmail: currentScrapedJob.recruiterEmail }
+          });
+        }
+      }
+    });
+  }
   if (companyInput) {
     companyInput.addEventListener('input', () => updateOutreachRoleContext(currentScrapedJob));
   }
   if (isRecruiterInput) {
     isRecruiterInput.addEventListener('change', () => {
+      if (currentScrapedJob) currentScrapedJob.isRecruiter = isRecruiterInput.checked;
       updateOutreachRoleContext(currentScrapedJob);
+      updateRecruiterOutreachUI(currentScrapedJob);
+      updateConnectMessagePreview(currentScrapedJob);
       autoSaveJobDetails();
     });
   }
@@ -699,6 +766,7 @@ function initCopilot() {
 
   setupProfileHelperEvents();
 
+  checkExistingJob();
   runSpaAutoReparse();
   setupHiringManagerObserver();
 }
@@ -830,12 +898,20 @@ function resolvePipelineJob(callback) {
       company: currentScrapedJob.company
     },
     (lookup) => {
+      if (lookup?.error && isExtensionDisconnectedError(lookup.error)) {
+        callback(null, lookup.error);
+        return;
+      }
       if (lookup?.success && lookup.data) {
         applyJobToUI(lookup.data, { fromPipeline: true });
         callback(lookup.data, null);
         return;
       }
       sendExtensionMessage({ action: 'getJobs' }, (response) => {
+        if (response?.error && isExtensionDisconnectedError(response.error)) {
+          callback(null, response.error);
+          return;
+        }
         if (!response?.success || !Array.isArray(response.data)) {
           callback(null, lookup?.error || response?.error || 'Could not reach pipeline server (port 3004).');
           return;
@@ -853,6 +929,7 @@ function resolvePipelineJob(callback) {
 }
 
 function applyJobToUI(job, { fromPipeline = false } = {}) {
+  if (job) applyScoreCorrection(job, { persist: fromPipeline });
   currentScrapedJob = job;
   if (fromPipeline) pipelineLinked = true;
   populateUIFields();
@@ -864,9 +941,12 @@ function applyJobToUI(job, { fromPipeline = false } = {}) {
 
   const statusBadge = document.getElementById('ajf-job-status');
   const status = (job.status || 'To Process').trim();
-  statusBadge.innerText = status;
+  const statusLabel =
+    typeof job.suitabilityScore === 'number' ? `${status} · ${job.suitabilityScore}/10` : status;
+  statusBadge.innerText = statusLabel;
   statusBadge.className = `ajf-badge ajf-badge-${status.toLowerCase().replace(/\s+/g, '-')}`;
-  statusBadge.setAttribute('title', `Pipeline status: ${status}`);
+  const scoreTitle = typeof job.suitabilityScore === 'number' ? `, fit ${job.suitabilityScore}/10` : '';
+  statusBadge.setAttribute('title', `Pipeline status: ${status}${scoreTitle}`);
 
   const markAppliedBtnTop = document.getElementById('ajf-btn-mark-applied-top');
   const markSkippedBtnTop = document.getElementById('ajf-btn-mark-skipped-top');
@@ -894,6 +974,7 @@ function applyJobToUI(job, { fromPipeline = false } = {}) {
   updateWorkflowRail(job);
   updateActionButtons();
   updateDynamicUI();
+  updateRecruiterOutreachUI(job);
 }
 
 function updateActionButtons() {
@@ -909,8 +990,14 @@ function updateActionButtons() {
   const downloadBtn = document.getElementById('ajf-btn-download-pdf');
   const hint = null; // hint removed from UI
 
+  const isSavedForLater = job?.status === 'Saved';
+  const saveLaterBtn = document.getElementById('ajf-btn-save-later');
+
   if (inDb && hasPdf) {
     saveBtn.innerText = 'Open PDF';
+    saveBtn.disabled = false;
+  } else if (inDb && isSavedForLater) {
+    saveBtn.innerText = 'Prepare & apply';
     saveBtn.disabled = false;
   } else if (inDb) {
     saveBtn.innerText = 'Saved to Pipeline';
@@ -919,8 +1006,11 @@ function updateActionButtons() {
     saveBtn.innerText = 'Save to Pipeline';
     saveBtn.disabled = false;
   }
+  if (saveLaterBtn) {
+    saveLaterBtn.style.display = !inDb ? 'block' : 'none';
+  }
   tailorBtn.disabled = !pipelineCheckDone || !inDb;
-  autofillBtn.disabled = !pipelineCheckDone;
+  autofillBtn.disabled = !pipelineCheckDone || (!inDb && !isLinkedInEasyApplyOpen());
   downloadBtn.style.display = tailored ? 'flex' : 'none';
   downloadBtn.innerText = 'PDF';
 
@@ -972,6 +1062,240 @@ function finishPipelineCheck() {
   updateDynamicUI();
 }
 
+const OFF_TARGET_TITLE_KEYWORDS = [
+  'machinery', 'mechanical', 'mining', 'construction', 'civil engineering',
+  'hardware engineer', 'warehouse', 'manufacturing', 'automotive technician',
+  'diesel', 'heavy equipment', 'trades', 'electrician', 'plumber'
+];
+
+const NON_PM_TITLE_KEYWORDS = [
+  'operations', 'operator', 'project manager', 'program manager', 'analyst',
+  'scrum', 'coordinator', 'specialist', 'assistant', 'intern', 'support',
+  'recruiter', 'consultant', 'engineer', 'developer', 'sales', 'marketing'
+];
+
+const LOW_FIT_SCORE_THRESHOLD = 5;
+
+function isLinkedInFeedPollutedDescription(text = '') {
+  const t = String(text).trim();
+  if (!t) return true;
+
+  const feedMarkers = [
+    /how promoted jobs are ranked/i,
+    /are these results helpful/i,
+    /99\+ results/i,
+    /skip to main content/i,
+    /linkedin corporation ©/i,
+    /get job alerts for this search/i,
+    /ai-powered search is in beta/i,
+    /get the linkedin app/i
+  ];
+  const markerHits = feedMarkers.filter((r) => r.test(t)).length;
+  if (markerHits >= 2) return true;
+  if (markerHits >= 1 && !/about the job/i.test(t) && t.length > 1500) return true;
+
+  const easyApplyCount = (t.match(/easy apply/gi) || []).length;
+  if (easyApplyCount >= 4 && !/about the job/i.test(t)) return true;
+
+  return false;
+}
+
+function sanitizeJobDescriptionForAssessment(desc = '', title = '') {
+  let text = String(desc || '').trim();
+  if (!text) return text;
+
+  const aboutIdx = text.search(/about the job/i);
+  if (aboutIdx >= 0) {
+    text = text.slice(aboutIdx);
+  } else if (
+    /how promoted jobs are ranked|99\+ results|skip to main content|ai-powered search is in beta/i.test(text) &&
+    title
+  ) {
+    const titleEsc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const idx = text.search(new RegExp(titleEsc, 'i'));
+    if (idx >= 0) {
+      const slice = text.slice(idx);
+      const aboutInSlice = slice.search(/about the job/i);
+      text = aboutInSlice >= 0 ? slice.slice(aboutInSlice) : slice;
+    }
+  }
+
+  const footerIdx = text.search(
+    /\n(?:About\n|Accessibility\n|Help Center\n|Privacy & Terms\n|LinkedIn Corporation)/i
+  );
+  if (footerIdx > 100) text = text.slice(0, footerIdx);
+
+  if (isLinkedInFeedPollutedDescription(text)) return '';
+
+  return text.slice(0, 12000);
+}
+
+function hasMeaningfulJobDescription(desc = '', title = '') {
+  const clean = sanitizeJobDescriptionForAssessment(desc, title);
+  return !!(clean && clean.length >= 150 && !isLinkedInFeedPollutedDescription(clean));
+}
+
+function correctSuitabilityScore({
+  score = 5,
+  jobTitle = '',
+  companyName = '',
+  jobDescription = '',
+  profile = {}
+} = {}) {
+  let adjusted = Number(score) || 5;
+  const title = String(jobTitle).toLowerCase();
+  const company = String(companyName).toLowerCase();
+  const desc = String(jobDescription).toLowerCase();
+  const combined = `${title} ${company} ${desc}`;
+  const profileBlob = JSON.stringify(profile).toLowerCase();
+
+  const candidateFintech =
+    /fintech|payments?|stablecoin|crypto|lending|credit|baas|financial infrastructure|yield|vault|paymentwall|spenmo|digital asset|exchange/.test(
+      profileBlob
+    );
+
+  const sweetSpotJd =
+    /pricing|payments?|monetization|billing|subscription|lending|credit|stablecoin|crypto|digital asset|exchange|treasury|fx|fintech|financial infrastructure|token|wallet/.test(
+      combined
+    );
+
+  const isProduct = isCoreProductRoleTitle(jobTitle);
+
+  if (isProduct && sweetSpotJd && candidateFintech) {
+    adjusted = Math.max(adjusted, 7);
+  }
+
+  if (isProduct && /pricing/.test(title) && candidateFintech) {
+    adjusted = Math.max(adjusted, 8);
+  }
+
+  if (/osl/.test(company) && isProduct) {
+    adjusted = Math.max(adjusted, 8);
+  }
+
+  const erpJd =
+    /general ledger|\bgl\b|oracle erp|sap erp|anaplan|tm1|workday financial|finance systems|erp product|budgeting system/.test(
+      combined
+    );
+  const hasFinanceFoundation =
+    /kpmg|finance controller|audit|financial control/.test(profileBlob) &&
+    /payments?|lending|credit|fintech/.test(profileBlob);
+
+  if (erpJd && !hasFinanceFoundation) {
+    adjusted = Math.min(adjusted, 4);
+  } else if (erpJd) {
+    adjusted = Math.min(adjusted, 5);
+  }
+
+  return Math.min(10, Math.max(1, Math.round(adjusted)));
+}
+
+function applyScoreCorrection(job, { persist = false } = {}) {
+  if (!job || typeof job.suitabilityScore !== 'number') return job;
+  const profile = currentSettings?.profile || {};
+  const cleanDesc = sanitizeJobDescriptionForAssessment(job.description || '', job.title || '');
+  const corrected = correctSuitabilityScore({
+    score: job.suitabilityScore,
+    jobTitle: job.title || '',
+    companyName: job.company || '',
+    jobDescription: cleanDesc,
+    profile
+  });
+  if (corrected !== job.suitabilityScore) {
+    job.suitabilityScore = corrected;
+    if (persist && pipelineLinked && job.id) {
+      sendExtensionMessage({
+        action: 'updateJob',
+        jobId: job.id,
+        updates: { suitabilityScore: corrected }
+      });
+    }
+  }
+  return job;
+}
+
+function isCoreProductRoleTitle(title = '') {
+  const t = String(title).toLowerCase().trim();
+  if (!t.includes('product')) return false;
+  for (const ex of NON_PM_TITLE_KEYWORDS) {
+    if (t.includes(ex)) return false;
+  }
+  const matches = ['manager', 'lead', 'director', 'head', 'vp', 'chief', 'owner', 'principal'];
+  return matches.some((m) => t.includes(m)) || t === 'product manager' || t === 'product owner' || t === 'product lead';
+}
+
+function getJobFitWarning(job = {}) {
+  const title = (job.title || '').trim();
+  const titleLower = title.toLowerCase();
+
+  const descLower = String(job.description || '').toLowerCase();
+  if (/mining contractor|built specifically for mining|heavy equipment|machinery\b/i.test(descLower)
+    && !/fintech|payments|banking/i.test(descLower)) {
+    return {
+      level: 'warning',
+      message: 'JD is mining/construction SaaS — not your core domain. Assessment already flags gaps; apply only if you want this lane.'
+    };
+  }
+
+  if (title && OFF_TARGET_TITLE_KEYWORDS.some((kw) => titleLower.includes(kw))) {
+    return {
+      level: 'danger',
+      message: `Off-target role (“${title}”) — looks like machinery/industrial, not product. Skip unless you mean it.`
+    };
+  }
+
+  if (title && !isCoreProductRoleTitle(title)) {
+    return {
+      level: 'danger',
+      message: `Not a core PM title (“${title}”). You almost applied to the wrong job yesterday — hit Skip.`
+    };
+  }
+
+  return null;
+}
+
+function shouldProceedDespiteLowFit() {
+  return true;
+}
+
+function refreshPipelineOnOpen() {
+  const fresh = extractJobDetails();
+  const jobUrl = getLinkedInJobPageUrl() || canonicalJobUrl(fresh.url || window.location.href);
+
+  if (!currentScrapedJob) {
+    currentScrapedJob = fresh;
+  } else if (pipelineLinked) {
+    // Keep pipeline title/CV/assessment — only refresh URL + company hint from Easy Apply modal
+    currentScrapedJob.url = jobUrl;
+    if (fresh.company && (!currentScrapedJob.company || currentScrapedJob.company === 'Unknown')) {
+      currentScrapedJob.company = fresh.company;
+    }
+    if (
+      hasMeaningfulJobDescription(fresh.description, fresh.title) &&
+      (!hasMeaningfulJobDescription(currentScrapedJob.description, currentScrapedJob.title) ||
+        sanitizeJobDescriptionForAssessment(fresh.description, fresh.title).length >
+          sanitizeJobDescriptionForAssessment(currentScrapedJob.description, currentScrapedJob.title).length)
+    ) {
+      currentScrapedJob.description = fresh.description;
+    }
+  } else {
+    currentScrapedJob.url = jobUrl;
+    if (fresh.title && fresh.title !== 'Job Opportunity') currentScrapedJob.title = fresh.title;
+    if (fresh.company) currentScrapedJob.company = fresh.company;
+    if (
+      hasMeaningfulJobDescription(fresh.description, fresh.title) &&
+      (!hasMeaningfulJobDescription(currentScrapedJob.description, currentScrapedJob.title) ||
+        sanitizeJobDescriptionForAssessment(fresh.description, fresh.title).length >
+          sanitizeJobDescriptionForAssessment(currentScrapedJob.description, currentScrapedJob.title).length)
+    ) {
+      currentScrapedJob.description = fresh.description;
+    }
+  }
+  currentScrapedJob.url = canonicalJobUrl(currentScrapedJob.url);
+  populateUIFields();
+  checkExistingJob();
+}
+
 function checkExistingJob() {
   pipelineCheckDone = false;
   updateActionButtons();
@@ -979,19 +1303,31 @@ function checkExistingJob() {
 
   resolvePipelineJob((job, err) => {
     if (job) {
-      logToConsole(`✓ Linked to pipeline job #${job.id}`);
-      logToConsole(`Status: ${job.status}`);
+      logToConsole(`✓ Linked to pipeline #${job.id} (${job.status || 'To Process'})`);
+      if (job.suitabilityScore) {
+        logToConsole(`Score: ${job.suitabilityScore}/10`);
+      }
+      if (job.pdfPath) {
+        logToConsole('✓ Tailored PDF ready — Open PDF or Fill to apply.');
+      } else if (job.tailoredCv) {
+        logToConsole('✓ Tailored CV on file — run PDF if needed.');
+      }
       if (job.status === 'Applied') {
-        logToConsole('✓ CV & cover letter are ready.');
+        logToConsole('✓ Already applied — outreach tab for HM invite.');
+      }
+      const assessSection = document.getElementById('ajf-assess-section');
+      if (job.suitabilityAssessment && assessSection) {
+        assessSection.style.display = 'block';
       }
     } else if (err === 'not_found') {
-      logToConsole('New on this page — click Save to Pipeline to add it.');
+      pipelineLinked = false;
+      logToConsole('Not in pipeline yet — Save to Pipeline (or Auto) to add.');
       const linkSection = document.getElementById('ajf-link-section');
       if (linkSection) {
         linkSection.style.display = 'block';
         populatePipelineDropdown();
       }
-    } else {
+    } else if (!isExtensionDisconnectedError(err)) {
       logToConsole(`✗ ${err}`);
     }
     finishPipelineCheck();
@@ -999,7 +1335,11 @@ function checkExistingJob() {
 }
 
 function toggleSidebar() {
+  const opening = !sidebarElement.classList.contains('ajf-open');
   sidebarElement.classList.toggle('ajf-open');
+  if (opening) {
+    refreshPipelineOnOpen();
+  }
 }
 
 function getLogTone(message) {
@@ -1154,7 +1494,7 @@ function attemptReparse() {
 
   const scraped = extractJobDetails();
   const titleEmpty = !scraped.title || scraped.title === 'Job Opportunity' || scraped.title.trim().length === 0;
-  const descEmpty = !scraped.description || scraped.description.length < 150;
+  const descEmpty = !hasMeaningfulJobDescription(scraped.description, scraped.title);
 
   // Detect if the DOM content is identical to the previously active job, which indicates the SPA hasn't hydrated/rendered the new job details yet
   const isDuplicateOfCurrent = currentScrapedJob &&
@@ -1164,8 +1504,23 @@ function attemptReparse() {
 
   if ((titleEmpty || descEmpty || isDuplicateOfCurrent) && retryCount < MAX_RETRIES) {
     retryCount++;
-    logToConsole(`Waiting for page content to load (Retry ${retryCount}/${MAX_RETRIES})...`);
+    const waitReason = descEmpty && scraped.description
+      ? 'Waiting for job description (ignoring jobs feed noise)'
+      : 'Waiting for page content to load';
+    logToConsole(`${waitReason} (Retry ${retryCount}/${MAX_RETRIES})...`);
     spaTimer = setTimeout(attemptReparse, 500);
+    return;
+  }
+
+  if (url.includes('linkedin.com') && isLinkedInEasyApplyOpen()) {
+    logToConsole('Easy Apply open — loading saved pipeline job (not re-scraping modal).');
+    const easyApply = parseLinkedInEasyApplyHeader();
+    if (!currentScrapedJob) currentScrapedJob = scraped;
+    currentScrapedJob.url = getLinkedInJobPageUrl() || canonicalJobUrl(currentScrapedJob.url);
+    if (easyApply.company) currentScrapedJob.company = easyApply.company;
+    populateUIFields();
+    updateActionButtons();
+    checkExistingJob();
     return;
   }
 
@@ -1267,23 +1622,42 @@ function isRecruiterPosting(company = '', isRecruiter = false) {
   return RECRUITER_AGENCIES.some((agency) => lower.includes(agency));
 }
 
+function formatOutreachWorkRightsLine(visa = '') {
+  const v = String(visa || currentSettings?.profile?.visa || '').trim();
+  if (/pr|permanent resident/i.test(v)) {
+    return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+  }
+  if (v) return `${v} — looking forward to connect.`;
+  return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+}
+
+function isStaleOutreachIntro(intro = '') {
+  const t = String(intro);
+  return (
+    /Happy to chat if useful/i.test(t) ||
+    (/Eugene here — just applied/i.test(t) && !/PR|visa|relocat|work rights/i.test(t))
+  );
+}
+
 function buildQuickOutreachMessage({
   title = '',
   company = '',
   contactFirstName = '',
-  isRecruiter = false
+  isRecruiter = false,
+  visa = ''
 } = {}) {
   const first = (contactFirstName || '').trim().split(/\s+/)[0];
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
   const recruiter = isRecruiterPosting(company, isRecruiter);
+  const workRights = formatOutreachWorkRightsLine(visa);
 
   let body;
   if (recruiter) {
-    body = `Eugene here — just applied for the ${role} role that you posted. Happy to chat if useful.`;
+    body = `Eugene here — just applied for the ${role} role that you posted. ${workRights}`;
   } else {
     const atCompany = company ? ` at ${company}` : '';
-    body = `Eugene here — just applied for the ${role} role${atCompany}. Happy to chat if useful.`;
+    body = `Eugene here — just applied for the ${role} role${atCompany}. ${workRights}`;
   }
 
   return `${greeting}\n\n${body}`.slice(0, 300);
@@ -1311,13 +1685,18 @@ function resolveHiringManagerFirstName(job = currentScrapedJob) {
   return '';
 }
 
+function isJobRecruiterPosting(job = {}) {
+  const isRecruiterBox = document.getElementById('ajf-input-is-recruiter');
+  return isRecruiterPosting(job.company, job.isRecruiter || isRecruiterBox?.checked);
+}
+
 function buildJobConnectMessage(job = currentScrapedJob) {
   if (!job) return '';
   return buildQuickOutreachMessage({
     title: job.title,
     company: job.company,
     contactFirstName: resolveHiringManagerFirstName(job),
-    isRecruiter: !!job.isRecruiter
+    isRecruiter: isJobRecruiterPosting(job)
   });
 }
 
@@ -1328,7 +1707,10 @@ function updateConnectMessagePreview(job = currentScrapedJob) {
     preview.value = '';
     return;
   }
-  preview.value = job.hiringManagerIntro || buildJobConnectMessage(job) || '';
+  const savedIntro = job.hiringManagerIntro;
+  preview.value = (savedIntro && !isStaleOutreachIntro(savedIntro))
+    ? savedIntro
+    : (buildJobConnectMessage(job) || '');
 }
 
 function isCopilotElementVisible(el) {
@@ -1347,16 +1729,28 @@ function updateInsightsStackVisibility() {
 
 function updateOutreachRoleContext(job = currentScrapedJob) {
   const el = document.getElementById('ajf-outreach-role-context');
+  const captureBtn = document.getElementById('ajf-btn-capture-hm');
+  const hmInput = document.getElementById('ajf-input-hiring-manager');
   if (!el) return;
   const title = (job?.title || document.getElementById('ajf-input-title')?.value || '').trim();
   const company = (job?.company || document.getElementById('ajf-input-company')?.value || '').trim();
+  const recruiter = isJobRecruiterPosting(job || {});
+
+  if (captureBtn) {
+    captureBtn.innerText = recruiter ? 'Capture recruiter' : 'Capture HM';
+  }
+  if (hmInput && !hmInput.value) {
+    hmInput.placeholder = recruiter ? 'Recruiter LinkedIn /in/ profile' : 'LinkedIn /in/ profile';
+  }
+
   if (!title && !company) {
     el.textContent = '';
     el.style.display = 'none';
     return;
   }
   el.style.display = 'block';
-  el.textContent = company ? `${title} · ${company}` : title;
+  const roleLine = company ? `${title} · ${company}` : title;
+  el.textContent = recruiter ? `Recruiter · ${roleLine}` : roleLine;
 }
 
 function updateWorkflowRail(job = currentScrapedJob) {
@@ -2016,13 +2410,20 @@ function getLinkedInLocation() {
 
 const HM_SECTION_HINTS = [
   'meet the hiring team',
-  'job poster',
   'hiring team',
   'hiring manager',
-  'people who can help',
-  'posted by',
-  'message the job poster',
-  'reach out to the job poster'
+  'posted by'
+];
+
+const HM_EXCLUDE_SECTION_HINTS = [
+  'people you can reach out to',
+  'people in your network',
+  'in my network',
+  'in your network',
+  'application status',
+  'similar jobs',
+  'more jobs',
+  'people also viewed'
 ];
 
 const HM_ROOT_SELECTORS = [
@@ -2035,15 +2436,13 @@ const HM_ROOT_SELECTORS = [
 ];
 
 const HM_CONTAINER_SELECTORS = [
-  '#job-details-people-who-can-help',
-  '[class*="job-details-people-who-can-help"]',
-  '[class*="people-who-can-help"]',
   '.jobs-poster',
   '[class*="jobs-poster"]',
   '[class*="hirer-card"]',
   '[class*="hiring-team"]',
+  '[class*="meet-the-hiring"]',
   '[data-view-name*="hirer"]',
-  '[data-view-name*="hiring"]',
+  '[data-view-name*="hiring-team"]',
   '[data-view-name*="poster"]'
 ];
 
@@ -2076,6 +2475,81 @@ function getLinkedInJobDetailsRoot() {
   return document;
 }
 
+function isOutreachSuggestionCard(cardText = '') {
+  const t = String(cardText).toLowerCase();
+  if (HM_EXCLUDE_SECTION_HINTS.some((hint) => t.includes(hint))) return true;
+  if (t.includes('recently hired') && !t.includes('job poster')) return true;
+  if (t.includes('mutual connection') && !t.includes('job poster') && !t.includes('hiring team')) {
+    return true;
+  }
+  return false;
+}
+
+function getProfileCardForLink(link) {
+  return link.closest(
+    '.artdeco-card, li, [class*="entity-lockup"], [class*="lockup"], [class*="hirer-card"], .jobs-poster, [class*="jobs-poster"], [class*="hiring-team"]'
+  ) || link.closest('div');
+}
+
+function extractNameFromProfileCard(link, card) {
+  const nameEl = card?.querySelector?.(
+    '.jobs-poster__name, .hirer-card__hirer-information, [class*="actor-name"], strong, [class*="name"]'
+  );
+  return extractCleanName(nameEl?.innerText || link.innerText || '');
+}
+
+function getSectionAfterHeader(headerEl) {
+  if (!headerEl) return null;
+  let sibling = headerEl.nextElementSibling;
+  for (let i = 0; i < 4 && sibling; i++) {
+    if (sibling.querySelector?.('a[href*="/in/"]')) return sibling;
+    sibling = sibling.nextElementSibling;
+  }
+  const parent = headerEl.parentElement;
+  if (parent?.querySelector('a[href*="/in/"]')) return parent;
+  return headerEl.closest('section') || headerEl.parentElement?.parentElement;
+}
+
+function findJobPosterCandidate(root) {
+  for (const link of root.querySelectorAll('a[href*="/in/"]')) {
+    if (isInsideExtensionUI(link)) continue;
+    if (link.closest('header, nav, [class*="global-nav"]')) continue;
+    const card = getProfileCardForLink(link);
+    const cardText = (card?.innerText || '').toLowerCase();
+    if (!cardText.includes('job poster')) continue;
+    if (isOutreachSuggestionCard(cardText)) continue;
+    const url = normalizeLinkedInProfileUrl(link.href || link.getAttribute('href'));
+    if (!url) continue;
+    return { url, name: extractNameFromProfileCard(link, card), score: 220 };
+  }
+  return null;
+}
+
+function findMeetHiringTeamCandidate(root) {
+  for (const el of root.querySelectorAll('h2, h3, h4, h5, span, div, label, p')) {
+    if (isInsideExtensionUI(el)) continue;
+    const text = (el.textContent || '').trim().toLowerCase();
+    if (text !== 'meet the hiring team' && !text.startsWith('meet the hiring team')) continue;
+
+    const section = getSectionAfterHeader(el);
+    if (!section || isInsideExtensionUI(section)) continue;
+    if (isOutreachSuggestionCard(section.innerText || '')) continue;
+
+    for (const link of section.querySelectorAll('a[href*="/in/"]')) {
+      if (isInsideExtensionUI(link)) continue;
+      const card = getProfileCardForLink(link);
+      const cardText = (card?.innerText || '').toLowerCase();
+      if (isOutreachSuggestionCard(cardText)) continue;
+      const url = normalizeLinkedInProfileUrl(link.href || link.getAttribute('href'));
+      if (!url) continue;
+      let score = 180;
+      if (cardText.includes('job poster')) score = 210;
+      return { url, name: extractNameFromProfileCard(link, card), score };
+    }
+  }
+  return null;
+}
+
 function scoreHiringManagerCandidate(link, contextText = '') {
   const href = link.getAttribute('href') || link.href || '';
   const normalized = normalizeLinkedInProfileUrl(href);
@@ -2087,25 +2561,24 @@ function scoreHiringManagerCandidate(link, contextText = '') {
   const excludedSlugs = ['company', 'jobs', 'school', 'groups', 'pulse', 'feed', 'search', 'learning'];
   if (excludedSlugs.includes(slug)) return -1;
 
-  let score = 0;
-  const card = link.closest('[class*="people-who-can-help"], [class*="hirer-card"], .jobs-poster, [class*="hiring-team"], [class*="jobs-poster"], .artdeco-card, section, li');
+  const card = getProfileCardForLink(link);
   const cardText = (card?.innerText || contextText || '').toLowerCase();
+  if (isOutreachSuggestionCard(cardText)) return -1;
 
-  if (link.closest('[class*="people-who-can-help"], [class*="hirer-card"], .jobs-poster, [class*="hiring-team"], [class*="jobs-poster"]')) {
+  let score = 0;
+  if (link.closest('[class*="hirer-card"], .jobs-poster, [class*="hiring-team"], [class*="jobs-poster"]')) {
     score += 50;
   }
   for (const hint of HM_SECTION_HINTS) {
     if (cardText.includes(hint)) score += 18;
   }
-  if (cardText.includes('poster') || cardText.includes('hirer')) score += 12;
+  if (cardText.includes('job poster')) score += 40;
+  if (cardText.includes('hirer')) score += 12;
   if (link.closest('.jobs-poster__name, [class*="poster__name"]')) score += 20;
 
   const linkText = (link.innerText || '').trim();
   if (linkText && linkText.length < 80 && !/linkedin|view profile|message/i.test(linkText)) {
     score += 8;
-  }
-  if (cardText.includes('mutual connection') && !cardText.includes('poster') && !cardText.includes('hiring')) {
-    score -= 12;
   }
 
   return score;
@@ -2113,20 +2586,28 @@ function scoreHiringManagerCandidate(link, contextText = '') {
 
 function getLinkedInHiringManager() {
   const root = getLinkedInJobDetailsRoot();
+
+  const jobPoster = findJobPosterCandidate(root);
+  if (jobPoster) return { url: jobPoster.url, name: jobPoster.name };
+
+  const hiringTeam = findMeetHiringTeamCandidate(root);
+  if (hiringTeam) return { url: hiringTeam.url, name: hiringTeam.name };
+
   const candidates = [];
 
   for (const selector of HM_CONTAINER_SELECTORS) {
     root.querySelectorAll(selector).forEach((container) => {
       if (isInsideExtensionUI(container)) return;
+      const containerText = (container.innerText || '').toLowerCase();
+      if (isOutreachSuggestionCard(containerText)) return;
       const link = container.querySelector('a[href*="/in/"]');
       if (!link) return;
       const url = normalizeLinkedInProfileUrl(link.href || link.getAttribute('href'));
       if (!url) return;
-      const nameEl = container.querySelector('.jobs-poster__name, .hirer-card__hirer-information, strong, [class*="name"]');
       candidates.push({
         url,
-        name: extractCleanName(nameEl?.innerText || link.innerText || ''),
-        score: 100
+        name: extractNameFromProfileCard(link, container),
+        score: containerText.includes('job poster') ? 160 : 100
       });
     });
   }
@@ -2137,49 +2618,38 @@ function getLinkedInHiringManager() {
     const text = (el.textContent || '').trim().toLowerCase();
     if (!HM_SECTION_HINTS.some((hint) => text === hint || text.startsWith(hint))) continue;
 
-    const container = el.closest('.jobs-poster') ||
-      el.closest('[class*="poster"]') ||
+    const container = getSectionAfterHeader(el) ||
+      el.closest('.jobs-poster') ||
       el.closest('[class*="hirer"]') ||
-      el.closest('[class*="hiring"]') ||
-      el.closest('[class*="people-who-can-help"]') ||
+      el.closest('[class*="hiring-team"]') ||
       el.closest('.artdeco-card') ||
-      el.closest('section') ||
-      el.parentElement?.parentElement;
+      el.closest('section');
 
     if (!container || isInsideExtensionUI(container)) continue;
+    if (isOutreachSuggestionCard(container.innerText || '')) continue;
 
     const link = container.querySelector('a[href*="/in/"]');
     if (link) {
       const url = normalizeLinkedInProfileUrl(link.href || link.getAttribute('href'));
       if (url) {
-        const nameEl = container.querySelector('.jobs-poster__name, strong, [class*="name"]');
         candidates.push({
           url,
-          name: extractCleanName(nameEl?.innerText || link.innerText || ''),
+          name: extractNameFromProfileCard(link, container),
           score: 90
-        });
-      }
-    } else {
-      const nameEl = container.querySelector('.jobs-poster__name, strong, [class*="name"]');
-      if (nameEl) {
-        candidates.push({
-          url: '',
-          name: extractCleanName(nameEl.innerText),
-          score: 40
         });
       }
     }
   }
 
   root.querySelectorAll('a[href*="/in/"]').forEach((link) => {
-    const card = link.closest('.artdeco-card, section, li, div');
+    const card = getProfileCardForLink(link);
     const score = scoreHiringManagerCandidate(link, card?.innerText || '');
     if (score < 15) return;
     const url = normalizeLinkedInProfileUrl(link.href || link.getAttribute('href'));
     if (!url) return;
     candidates.push({
       url,
-      name: extractCleanName(link.innerText || ''),
+      name: extractNameFromProfileCard(link, card),
       score
     });
   });
@@ -2222,28 +2692,29 @@ function updateHiringManagerUI(hmInfo = null) {
   if (inviteBtn) {
     inviteBtn.style.display = 'none';
   }
-  if (!statusEl) return;
-
   const displayName = hmInfo?.name || currentScrapedJob?.hiringManagerName || '';
   updateConnectMessagePreview();
   updateOutreachRoleContext();
 
-  if (profileUrl && displayName) {
-    statusEl.textContent = `✓ Captured: ${displayName}`;
-    statusEl.style.color = '#248a3d';
-    statusEl.style.display = 'block';
-  } else if (profileUrl) {
-    statusEl.textContent = '✓ LinkedIn profile captured';
-    statusEl.style.color = '#248a3d';
-    statusEl.style.display = 'block';
-  } else if (displayName) {
-    statusEl.textContent = `Name found (no profile link): ${displayName}`;
-    statusEl.style.color = '#c93400';
-    statusEl.style.display = 'block';
-  } else if (!value) {
-    statusEl.style.display = 'none';
-    statusEl.textContent = '';
+  if (statusEl) {
+    if (profileUrl && displayName) {
+      statusEl.textContent = `✓ Captured: ${displayName}`;
+      statusEl.style.color = '#248a3d';
+      statusEl.style.display = 'block';
+    } else if (profileUrl) {
+      statusEl.textContent = '✓ LinkedIn profile captured';
+      statusEl.style.color = '#248a3d';
+      statusEl.style.display = 'block';
+    } else if (displayName) {
+      statusEl.textContent = `Name found (no profile link): ${displayName}`;
+      statusEl.style.color = '#c93400';
+      statusEl.style.display = 'block';
+    } else if (!value) {
+      statusEl.style.display = 'none';
+      statusEl.textContent = '';
+    }
   }
+  updateRecruiterOutreachUI(currentScrapedJob || {});
 }
 
 function syncHiringManagerFromPage({ force = false, autoSave = false, silent = false } = {}) {
@@ -2334,9 +2805,119 @@ function extractCleanName(rawName) {
   return name.trim();
 }
 
+function isLinkedInEasyApplyOpen() {
+  return !!document.querySelector(
+    'dialog[data-testid="dialog"][open], dialog[open][aria-labelledby="dialog-header"]'
+  );
+}
+
+function getLinkedInEasyApplyDialog() {
+  return document.querySelector(
+    'dialog[data-testid="dialog"][open], dialog[open][aria-labelledby="dialog-header"]'
+  );
+}
+
+function getAutofillRoot() {
+  return getLinkedInEasyApplyDialog() || document;
+}
+
+function isInsideCopilot(el) {
+  return !!(el?.closest?.('.ajf-copilot-container, #ajf-sidebar, #ajf-launcher'));
+}
+
+function parseLinkedInEasyApplyHeader() {
+  const header = document.querySelector('#dialog-header h2, dialog[open] header h2');
+  if (!header) return { company: '', title: '' };
+  const text = header.innerText.trim();
+  const match = text.match(/^Apply to\s+(.+)$/i);
+  return { company: match ? match[1].trim() : '', title: '' };
+}
+
+function getLinkedInJobPageUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const jobId = u.searchParams.get('currentJobId');
+    if (jobId) return canonicalJobUrl(`https://www.linkedin.com/jobs/view/${jobId}`);
+    const viewMatch = u.pathname.match(/\/jobs\/view\/(\d+)/);
+    if (viewMatch) return canonicalJobUrl(`https://www.linkedin.com/jobs/view/${viewMatch[1]}`);
+  } catch {
+    // ignore
+  }
+  return canonicalJobUrl(window.location.href);
+}
+
+function getLinkedInJobDetailRoots() {
+  const roots = [
+    document.querySelector('.jobs-details__main-content'),
+    document.querySelector('.scaffold-layout__detail'),
+    document.querySelector('.jobs-details'),
+    document.querySelector('.job-view-layout'),
+    document.querySelector('#job-details')
+  ].filter(Boolean);
+  return roots.length ? roots : [document];
+}
+
+function extractLinkedInJobDescription(title = '') {
+  const descSelectors = [
+    '.jobs-description__content',
+    '.jobs-box__html-content',
+    '.jobs-description-content__text',
+    '.jobs-description',
+    '[class*="jobs-description__content"]',
+    '[class*="description__text"]',
+    '[data-test-id*="job-description"]'
+  ];
+
+  for (const root of getLinkedInJobDetailRoots()) {
+    for (const sel of descSelectors) {
+      const el = root.querySelector(sel);
+      const text = el?.innerText?.trim() || '';
+      if (text.length > 80 && !isLinkedInFeedPollutedDescription(text)) {
+        return text;
+      }
+    }
+  }
+
+  for (const root of getLinkedInJobDetailRoots()) {
+    const headings = root.querySelectorAll('h2, h3, h4, span, strong, p');
+    for (const h of headings) {
+      if (!/^about the job$/i.test((h.innerText || '').trim())) continue;
+
+      const section =
+        h.closest('section') ||
+        h.closest('[class*="description"]') ||
+        h.closest('.jobs-box__html-content') ||
+        h.parentElement?.parentElement;
+      const sectionText = section?.innerText?.trim() || '';
+      if (sectionText.length > 80 && !isLinkedInFeedPollutedDescription(sectionText)) {
+        return sectionText;
+      }
+
+      const container = h.parentElement;
+      const parts = [h.innerText.trim()];
+      let sibling = container?.nextElementSibling;
+      let hops = 0;
+      while (sibling && hops < 6) {
+        const chunk = sibling.innerText?.trim();
+        if (chunk) parts.push(chunk);
+        if (parts.join('\n').length > 200) break;
+        sibling = sibling.nextElementSibling;
+        hops++;
+      }
+      const assembled = parts.join('\n\n').trim();
+      if (assembled.length > 80 && !isLinkedInFeedPollutedDescription(assembled)) {
+        return assembled;
+      }
+    }
+  }
+
+  return '';
+}
+
 // Extract Job Listing details using custom/generic selectors
 function extractJobDetails() {
-  const url = window.location.href;
+  let pageUrl = window.location.href;
+  const url = pageUrl;
   let title = '';
   let company = '';
   let location = '';
@@ -2379,6 +2960,12 @@ function extractJobDetails() {
       }
     } catch (e) { }
   } else if (url.includes('linkedin.com')) {
+    if (isLinkedInEasyApplyOpen()) {
+      const easyApply = parseLinkedInEasyApplyHeader();
+      if (easyApply.company) company = easyApply.company;
+      pageUrl = getLinkedInJobPageUrl();
+    }
+
     title = document.querySelector('.job-details-jobs-unified-top-card__job-title h1')?.innerText ||
       document.querySelector('.job-details-jobs-unified-top-card__job-title')?.innerText ||
       document.querySelector('.jobs-unified-top-card__job-title')?.innerText ||
@@ -2392,12 +2979,7 @@ function extractJobDetails() {
 
     location = getLinkedInLocation();
 
-    description = document.querySelector('.jobs-description__content')?.innerText ||
-      document.querySelector('.jobs-box__html-content')?.innerText ||
-      document.querySelector('#job-details')?.innerText ||
-      document.querySelector('.jobs-description')?.innerText ||
-      document.querySelector('.jobs-description-content__text')?.innerText ||
-      '';
+    description = extractLinkedInJobDescription(title);
 
     const hmInfo = getLinkedInHiringManager();
     if (hmInfo) {
@@ -2464,7 +3046,7 @@ function extractJobDetails() {
       }
     }
   }
-  if (!description) {
+  if (!description && !url.includes('linkedin.com')) {
     description = document.body.innerText || '';
   }
   if (!location) {
@@ -2490,8 +3072,11 @@ function extractJobDetails() {
     title: title.trim(),
     company: cleanCompanyName,
     location: location.trim().replace(/•/g, '').trim(),
-    url: url,
-    description: description.replace(/\s+/g, ' ').trim(),
+    url: canonicalJobUrl(pageUrl),
+    description: sanitizeJobDescriptionForAssessment(
+      description.replace(/\s+/g, ' ').trim(),
+      title.trim()
+    ),
     status: 'To Process',
     scrapedAt: new Date().toISOString(),
     tailoredCv: null,
@@ -2546,12 +3131,19 @@ function populateUIFields() {
 
   const isRecruiterBox = document.getElementById('ajf-input-is-recruiter');
   if (isRecruiterBox) {
-    isRecruiterBox.checked = pipelineLinked ? !!currentScrapedJob.isRecruiter : false;
-    if (!pipelineLinked) currentScrapedJob.isRecruiter = false;
+    const detectedRecruiter = isRecruiterPosting(
+      currentScrapedJob.company,
+      pipelineLinked ? currentScrapedJob.isRecruiter : false
+    );
+    isRecruiterBox.checked = detectedRecruiter;
+    currentScrapedJob.isRecruiter = detectedRecruiter;
   }
 
-  setCollapsibleInsight('ajf-assess-section', '', { visible: false });
+  if (!pipelineLinked) {
+    setCollapsibleInsight('ajf-assess-section', '', { visible: false });
+  }
   updateOutreachRoleContext(currentScrapedJob);
+  updateRecruiterOutreachUI(currentScrapedJob);
 }
 
 function populatePipelineDropdown() {
@@ -2641,7 +3233,7 @@ function handleUpdateStatus(newStatus) {
               showToast('Applied! Click 📨 Invite to connect with HM');
             } else {
               logToConsole('📇 Applied — capture HM profile, then use 📨 Invite or Quick Msg.');
-              showToast('Applied! Capture HM profile for auto-invite');
+              showToast('Applied! Capture recruiter/HM LinkedIn for invite');
             }
           }
         } else {
@@ -2705,6 +3297,11 @@ function handleSaveCustomInstructions() {
 
 // Message/Local Server Handlers
 function handleAutoProcessChain() {
+  updateScrapedJobFromInputs();
+  if (!shouldProceedDespiteLowFit(currentScrapedJob, 'Run Auto (Assess → Tailor → PDF)')) {
+    return;
+  }
+
   const saveBtn = document.getElementById('ajf-btn-save');
   saveBtn.disabled = true;
   saveBtn.innerText = '⌛ 1/4 Saving job...';
@@ -2750,11 +3347,18 @@ function handleAutoProcessChain() {
           logToConsole('✓ Step 2/4: Suitability assessment completed.');
           jobToUpdate.suitabilityScore = assessResponse.data.score || 5;
           jobToUpdate.suitabilityAssessment = assessResponse.data.explanation;
+          applyScoreCorrection(jobToUpdate);
 
           setCollapsibleInsight(
             'ajf-assess-section',
             stripScoreFromText(assessResponse.data.explanation)
           );
+
+          if (jobToUpdate.suitabilityScore <= LOW_FIT_SCORE_THRESHOLD) {
+            logToConsole(
+              `⚠️ Score ${jobToUpdate.suitabilityScore}/10 — review assessment, continuing to tailor.`
+            );
+          }
         } else {
           logToConsole(`⚠️ Step 2/4 warning: Assessment failed (${assessResponse?.error || 'Unknown error'}). Continuing to Tailoring...`);
         }
@@ -2837,9 +3441,163 @@ function openJobPdf() {
   sendExtensionMessage({ action: 'openTab', url: pdfUrl });
 }
 
+function extractRecruiterEmailFromText(text = '') {
+  const matches = String(text).match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  const filtered = matches.filter(
+    (e) => !/linkedin|example|noreply|no-reply/i.test(e)
+  );
+  return filtered[0] || '';
+}
+
+function buildRecruiterEmailDraft(job = {}) {
+  const role = (job.title || 'this role').trim();
+  const company = (job.company || '').trim();
+  const atLine = company ? ` for the ${role} role (${company})` : ` for the ${role} role`;
+  const subject = `${role}${company ? ` — ${company}` : ''} — Eugene Bochkov`;
+  const workRights = formatOutreachWorkRightsLine();
+  const body = `Hi,\n\nI'm interested in the opportunity${atLine}. ${workRights} CV attached.\n\nEugene Bochkov\neu.bochkov@gmail.com`;
+  return { subject, body, mailto: `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` };
+}
+
+function refreshRecruiterEmailDraft() {
+  const draftEl = document.getElementById('ajf-recruiter-email-draft');
+  if (!draftEl || !currentScrapedJob) return;
+  const emailInput = document.getElementById('ajf-recruiter-email');
+  if (emailInput && emailInput.value.trim()) {
+    currentScrapedJob.recruiterEmail = emailInput.value.trim();
+  }
+  const { subject, body } = buildRecruiterEmailDraft(currentScrapedJob);
+  draftEl.value = `Subject: ${subject}\n\n${body}`;
+}
+
+function updateRecruiterOutreachUI(job = {}) {
+  const emailBlock = document.getElementById('ajf-recruiter-outreach');
+  const linkedInBlock = document.getElementById('ajf-block-outreach');
+  const emailFields = document.getElementById('ajf-recruiter-email-fields');
+  const emailToggle = document.getElementById('ajf-btn-toggle-recruiter-email');
+
+  const isRecruiter = isJobRecruiterPosting(job);
+  const emailFromDesc = extractRecruiterEmailFromText(job.description || '');
+  const hasEmail = !!(job.recruiterEmail || emailFromDesc);
+  const hmUrl = normalizeLinkedInProfileUrl(
+    job.hiringManager || document.getElementById('ajf-input-hiring-manager')?.value || ''
+  );
+  const hasLinkedIn = !!hmUrl;
+
+  if (linkedInBlock) {
+    linkedInBlock.style.display = 'flex';
+  }
+
+  // LinkedIn first — email only as optional fallback when recruiter post has an address
+  const showEmailFallback = isRecruiter && hasEmail;
+  if (emailBlock) {
+    emailBlock.style.display = showEmailFallback ? 'flex' : 'none';
+  }
+  if (emailFields && emailToggle) {
+    const expanded = emailFields.style.display !== 'none';
+    if (!showEmailFallback) {
+      emailFields.style.display = 'none';
+      emailToggle.innerText = 'Show';
+    } else if (!hasLinkedIn && !expanded) {
+      emailToggle.innerText = 'Show';
+      emailFields.style.display = 'none';
+    } else if (expanded) {
+      emailToggle.innerText = 'Hide';
+    } else {
+      emailToggle.innerText = 'Show';
+    }
+  }
+
+  if (!showEmailFallback) return;
+
+  const emailInput = document.getElementById('ajf-recruiter-email');
+  if (emailInput) {
+    emailInput.value = job.recruiterEmail || emailFromDesc || emailInput.value || '';
+    if (!job.recruiterEmail && emailFromDesc) {
+      job.recruiterEmail = emailFromDesc;
+    }
+  }
+  refreshRecruiterEmailDraft();
+  updateOutreachRoleContext(job);
+}
+
+function handleCopyRecruiterEmail() {
+  const draftEl = document.getElementById('ajf-recruiter-email-draft');
+  const emailInput = document.getElementById('ajf-recruiter-email');
+  if (!draftEl?.value) {
+    refreshRecruiterEmailDraft();
+  }
+  const text = draftEl?.value || '';
+  const email = emailInput?.value?.trim() || '';
+  const clip = email ? `To: ${email}\n\n${text}` : text;
+  navigator.clipboard.writeText(clip).then(() => {
+    showToast('Recruiter email copied');
+    logToConsole('✓ Recruiter email copied — paste into your mail client, attach CV PDF.');
+  }).catch(() => showToast('Copy failed'));
+}
+
+function handleOpenRecruiterMailto() {
+  const emailInput = document.getElementById('ajf-recruiter-email');
+  const to = emailInput?.value?.trim();
+  if (!to) {
+    showToast('Add recruiter email first');
+    return;
+  }
+  const { subject, body } = buildRecruiterEmailDraft(currentScrapedJob || {});
+  const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.open(url, '_blank');
+  logToConsole(`Opened mailto for ${to} — attach your tailored PDF before sending.`);
+}
+
+function handleSaveForLater() {
+  updateScrapedJobFromInputs();
+  const btn = document.getElementById('ajf-btn-save-later');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Saving…';
+  }
+
+  currentScrapedJob.status = 'Saved';
+  currentScrapedJob.isRecruiter = document.getElementById('ajf-input-is-recruiter')?.checked || false;
+  currentScrapedJob.url = canonicalJobUrl(
+    document.getElementById('ajf-input-url')?.value || currentScrapedJob.url
+  );
+  if (!currentScrapedJob.recruiterEmail) {
+    currentScrapedJob.recruiterEmail = extractRecruiterEmailFromText(currentScrapedJob.description || '');
+  }
+
+  clearLogs();
+  logToConsole('Saving for later (no assess/tailor)…');
+
+  sendExtensionMessage({ action: 'addJob', job: currentScrapedJob }, (response) => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = 'Bookmark for later';
+    }
+    if (response?.success) {
+      const saved = response.data.job;
+      applyJobToUI(saved, { fromPipeline: true });
+      updateRecruiterOutreachUI(saved);
+      logToConsole(`✓ Saved for later (#${saved.id}). Tailor when ready — LinkedIn invite below.`);
+      showToast('Saved for later');
+      if (saved.recruiterEmail || saved.isRecruiter) {
+        logToConsole('Recruiter posting — Capture recruiter on LinkedIn, then Copy Invite.');
+      }
+    } else {
+      logToConsole(`✗ Save failed: ${response?.error || 'Unknown error'}`);
+    }
+  });
+}
+
 function handleSaveOrOpenPdf() {
   if (pipelineLinked && currentScrapedJob?.pdfPath) {
     openJobPdf();
+    return;
+  }
+  if (pipelineLinked && currentScrapedJob?.status === 'Saved') {
+    const autoBox = document.getElementById('ajf-input-auto-process');
+    if (autoBox) autoBox.checked = true;
+    handleAutoProcessChain();
     return;
   }
   handleSaveJob();
@@ -2848,6 +3606,11 @@ function handleSaveOrOpenPdf() {
 function handleSaveJob() {
   const autoProcessCheckbox = document.getElementById('ajf-input-auto-process');
   const shouldAutoProcess = autoProcessCheckbox ? autoProcessCheckbox.checked : false;
+
+  updateScrapedJobFromInputs();
+  if (!shouldAutoProcess && !shouldProceedDespiteLowFit(currentScrapedJob, 'Save to pipeline')) {
+    return;
+  }
 
   if (shouldAutoProcess) {
     handleAutoProcessChain();
@@ -2873,7 +3636,7 @@ function handleSaveJob() {
 
   sendExtensionMessage({ action: 'addJob', job: currentScrapedJob }, (response) => {
     saveBtn.disabled = false;
-    saveBtn.innerText = '💾 Save to Pipeline';
+    saveBtn.innerText = 'Save & tailor';
 
     if (response && response.success) {
       logToConsole('✓ Job saved to pipeline.');
@@ -3042,9 +3805,14 @@ function handleAssessMatch() {
         if (currentScrapedJob) {
           currentScrapedJob.suitabilityAssessment = response.data.explanation;
           currentScrapedJob.suitabilityScore = score;
+          applyScoreCorrection(currentScrapedJob);
         }
 
         setCollapsibleInsight('ajf-assess-section', stripScoreFromText(response.data.explanation));
+        const correctedScore = currentScrapedJob?.suitabilityScore ?? score;
+        if (correctedScore <= LOW_FIT_SCORE_THRESHOLD) {
+          logToConsole(`⚠️ Score ${correctedScore}/10 — review assessment notes above.`);
+        }
 
         // Auto-save the job to pipeline database so the user doesn't get N/A or have to click Save manually
         if (currentScrapedJob) {
@@ -3067,11 +3835,7 @@ function handleAssessMatch() {
               }
               updateActionButtons();
               const statusBadge = document.getElementById('ajf-job-status');
-              if (statusBadge && currentScrapedJob) {
-                const status = (currentScrapedJob.status || 'To Process').trim();
-                statusBadge.innerText = status;
-                statusBadge.className = `ajf-badge ajf-badge-${status.toLowerCase().replace(/\s+/g, '-')}`;
-              }
+              applyJobToUI(currentScrapedJob, { fromPipeline: true });
             } else {
               logToConsole(`✗ Auto-save failed: ${saveResponse?.error || 'Unknown error'}`);
             }
@@ -3195,11 +3959,13 @@ async function handleAutofill() {
       : 'Eugene_Bochkov_CV.pdf';
 
     logToConsole('Analyzing application fields...');
-    const formElements = document.querySelectorAll('input, textarea, select');
+    const autofillRoot = getAutofillRoot();
+    const formElements = autofillRoot.querySelectorAll('input, textarea, select');
     const radioGroups = {};
     let fieldsFilled = 0;
 
     for (const el of formElements) {
+      if (isInsideCopilot(el)) continue;
       if (el.offsetWidth === 0 || el.offsetHeight === 0) continue; // skip hidden
 
       const info = getElementInfo(el);
@@ -3275,6 +4041,16 @@ async function handleAutofill() {
           val = "3021";
         } else if (combined.includes('location') && !combined.includes('job')) {
           val = "St Albans, VIC";
+        } else if (/product management.*year|years.*product management/i.test(combined)) {
+          val = '10';
+        } else if (/saas.*startup.*year|years.*saas.*startup/i.test(combined)) {
+          val = '8';
+        } else if (/years.*\bsaas\b|saas.*years|software as a service/i.test(combined)) {
+          val = '8';
+        } else if (/\bepm\b|enterprise project management/i.test(combined)) {
+          val = '5';
+        } else if (/years.*experience|how many years/i.test(combined) && combined.includes('product')) {
+          val = '10';
         }
 
         if (val !== null && val !== '') {
@@ -3337,8 +4113,10 @@ async function handleAutofill() {
       const isSponsorship = questionText.includes('sponsorship') || questionText.includes('sponsor') || questionText.includes('visa support');
       const isEligibility = questionText.includes('authorized') || questionText.includes('right to work') || questionText.includes('eligible');
       const isEEOC = questionText.includes('gender') || questionText.includes('race') || questionText.includes('ethnicity') || questionText.includes('veteran') || questionText.includes('disability');
+      const isHybrid = questionText.includes('hybrid');
+      const isRemote = questionText.includes('remote') && questionText.includes('comfortable');
 
-      if (!isSponsorship && !isEligibility && !isEEOC) continue;
+      if (!isSponsorship && !isEligibility && !isEEOC && !isHybrid && !isRemote) continue;
 
       let bestRadio = null;
       let bestScore = -999;
@@ -3359,6 +4137,9 @@ async function handleAutofill() {
           if (optionText === 'no' || optionText === 'no.') score -= 10;
         } else if (isEEOC) {
           if (optionText.includes('decline') || optionText.includes('prefer not to say') || optionText.includes('disclose')) score += 15;
+        } else if (isHybrid || isRemote) {
+          if (optionText === 'yes' || optionText === 'yes.' || optionText.startsWith('yes')) score += 15;
+          if (optionText === 'no' || optionText === 'no.') score -= 10;
         }
 
         if (score > bestScore) {
@@ -3374,8 +4155,9 @@ async function handleAutofill() {
     }
 
     // 6. Terms & Agreements Checkboxes
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    const checkboxes = autofillRoot.querySelectorAll('input[type="checkbox"]');
     for (const cb of checkboxes) {
+      if (isInsideCopilot(cb)) continue;
       if (cb.offsetWidth === 0 || cb.offsetHeight === 0) continue;
       const info = getElementInfo(cb);
       const labelLower = info.label.toLowerCase();
@@ -3400,9 +4182,13 @@ function getElementInfo(element) {
   const tagName = element.tagName.toUpperCase();
 
   let labelText = '';
+  const ariaLabel = element.getAttribute('aria-label') || '';
+  if (ariaLabel) labelText = ariaLabel;
+
+  const searchRoot = element.closest('dialog') || document;
   if (id) {
-    const label = document.querySelector(`label[for="${id}"]`);
-    if (label) labelText = label.innerText;
+    const label = searchRoot.querySelector(`label[for="${CSS.escape(id)}"]`);
+    if (label) labelText = label.innerText || labelText;
   }
   if (!labelText) {
     const parentLabel = element.closest('label');
@@ -3738,10 +4524,45 @@ function showToast(message) {
   }, 4000);
 }
 
+function isExtensionContextValid() {
+  try {
+    return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+  } catch {
+    return false;
+  }
+}
+
+function isExtensionDisconnectedError(msg = '') {
+  const m = String(msg).toLowerCase();
+  return (
+    m.includes('invalidated') ||
+    m.includes('extension context') ||
+    m.includes('connection lost') ||
+    m.includes('receiving end does not exist') ||
+    m.includes('message port closed')
+  );
+}
+
+function markExtensionDisconnected(reason = 'Extension context invalidated') {
+  if (extensionDisconnected) return;
+  extensionDisconnected = true;
+  const statusBadge = document.getElementById('ajf-job-status');
+  if (statusBadge && statusBadge.innerText === 'Checking...') {
+    statusBadge.innerText = 'Offline';
+    statusBadge.className = 'ajf-badge ajf-badge-dismissed';
+  }
+  logToConsole('⚠ Extension reloaded — refresh this tab to reconnect Copilot.');
+  showToast('Refresh page to reconnect Copilot');
+}
+
 function sendExtensionMessage(message, callback) {
+  if (extensionDisconnected || !isExtensionContextValid()) {
+    markExtensionDisconnected('Extension context invalidated');
+    if (callback) callback({ success: false, error: 'Extension context invalidated' });
+    return false;
+  }
   if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
-    logToConsole('✗ Error: Extension connection lost. Please refresh this webpage to reload the Copilot extension.');
-    showToast('Please refresh the page to reload Copilot!');
+    markExtensionDisconnected('Extension connection lost');
     if (callback) callback({ success: false, error: 'Extension connection lost' });
     return false;
   }
@@ -3749,9 +4570,11 @@ function sendExtensionMessage(message, callback) {
     chrome.runtime.sendMessage(message, (response) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        logToConsole(`✗ Extension error: ${lastError.message}`);
-        logToConsole('TIP: Please refresh this webpage to restore connection.');
-        showToast('Extension disconnected! Please refresh.');
+        if (isExtensionDisconnectedError(lastError.message)) {
+          markExtensionDisconnected(lastError.message);
+        } else {
+          logToConsole(`✗ Extension error: ${lastError.message}`);
+        }
         if (callback) callback({ success: false, error: lastError.message });
         return;
       }
@@ -3759,9 +4582,11 @@ function sendExtensionMessage(message, callback) {
     });
     return true;
   } catch (e) {
-    logToConsole(`✗ Extension error: ${e.message}`);
-    logToConsole('TIP: Please refresh this webpage to restore connection.');
-    showToast('Extension disconnected! Please refresh.');
+    if (isExtensionDisconnectedError(e.message)) {
+      markExtensionDisconnected(e.message);
+    } else {
+      logToConsole(`✗ Extension error: ${e.message}`);
+    }
     if (callback) callback({ success: false, error: e.message });
     return false;
   }
@@ -3875,6 +4700,18 @@ const urlObserver = new MutationObserver(() => {
   }
 });
 urlObserver.observe(document, { subtree: true, childList: true });
+
+let easyApplySyncTimer = null;
+function scheduleEasyApplyPipelineSync() {
+  if (easyApplySyncTimer) clearTimeout(easyApplySyncTimer);
+  easyApplySyncTimer = setTimeout(() => {
+    if (!document.getElementById('ajf-launcher') || !isLinkedInEasyApplyOpen()) return;
+    logToConsole('Easy Apply modal detected — syncing pipeline…');
+    refreshPipelineOnOpen();
+  }, 500);
+}
+const easyApplyObserver = new MutationObserver(scheduleEasyApplyPipelineSync);
+easyApplyObserver.observe(document.documentElement, { childList: true, subtree: true });
 
 // Start Indeed Automation integrations
 runIndeedIntegration();

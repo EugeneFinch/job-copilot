@@ -829,16 +829,21 @@ app.post('/api/jobs/add', (req, res) => {
 
     if (existing) {
       const existingIndex = jobs.findIndex((j) => j.id === existing.id);
+      const lockedStatuses = ['Applied', 'Invited', 'Dismissed', 'Skipped'];
+      const nextStatus = lockedStatuses.includes(existing.status)
+        ? existing.status
+        : (newJob.status || existing.status);
       jobs[existingIndex] = {
         source: existing.source || newJob.source || 'Extension Sourced',
         ...existing,
         ...newJob,
         id: existing.id,
-        status: existing.status,
-        tailoredCv: existing.tailoredCv,
-        coverLetter: existing.coverLetter,
-        pdfPath: existing.pdfPath,
-        whyInterested: existing.whyInterested,
+        status: nextStatus,
+        tailoredCv: existing.tailoredCv || newJob.tailoredCv,
+        coverLetter: existing.coverLetter || newJob.coverLetter,
+        pdfPath: existing.pdfPath || newJob.pdfPath,
+        whyInterested: existing.whyInterested || newJob.whyInterested,
+        recruiterEmail: newJob.recruiterEmail || existing.recruiterEmail,
         url: canonicalJobUrl(newJob.url || existing.url)
       };
       if (newJob.source) {
@@ -1874,6 +1879,124 @@ ${suitabilityAssessment ? `\n**Pre-Pipeline Suitability Assessment (Use this mat
   }
 });
 
+function isLinkedInFeedPollutedDescription(text = '') {
+  const t = String(text).trim();
+  if (!t) return true;
+
+  const feedMarkers = [
+    /how promoted jobs are ranked/i,
+    /are these results helpful/i,
+    /99\+ results/i,
+    /skip to main content/i,
+    /linkedin corporation ©/i,
+    /get job alerts for this search/i,
+    /ai-powered search is in beta/i,
+    /get the linkedin app/i
+  ];
+  const markerHits = feedMarkers.filter((r) => r.test(t)).length;
+  if (markerHits >= 2) return true;
+  if (markerHits >= 1 && !/about the job/i.test(t) && t.length > 1500) return true;
+
+  const easyApplyCount = (t.match(/easy apply/gi) || []).length;
+  if (easyApplyCount >= 4 && !/about the job/i.test(t)) return true;
+
+  return false;
+}
+
+function sanitizeJobDescriptionForAssessment(desc = '', title = '') {
+  let text = String(desc || '').trim();
+  if (!text) return text;
+
+  const aboutIdx = text.search(/about the job/i);
+  if (aboutIdx >= 0) {
+    text = text.slice(aboutIdx);
+  } else if (
+    /how promoted jobs are ranked|99\+ results|skip to main content|ai-powered search is in beta/i.test(text) &&
+    title
+  ) {
+    const titleEsc = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const idx = text.search(new RegExp(titleEsc, 'i'));
+    if (idx >= 0) {
+      const slice = text.slice(idx);
+      const aboutInSlice = slice.search(/about the job/i);
+      text = aboutInSlice >= 0 ? slice.slice(aboutInSlice) : slice;
+    }
+  }
+
+  const footerIdx = text.search(
+    /\n(?:About\n|Accessibility\n|Help Center\n|Privacy & Terms\n|LinkedIn Corporation)/i
+  );
+  if (footerIdx > 100) text = text.slice(0, footerIdx);
+
+  if (isLinkedInFeedPollutedDescription(text)) return '';
+
+  return text.slice(0, 12000);
+}
+
+function isCoreProductRoleTitle(title = '') {
+  const t = String(title).toLowerCase().trim();
+  if (!t.includes('product')) return false;
+  const blockers = ['project manager', 'program manager', 'product marketing', 'product designer', 'product engineer'];
+  if (blockers.some((b) => t.includes(b))) return false;
+  return /product\s*(manager|lead|director|head|owner|principal)|head of product|vp product|chief product/.test(t);
+}
+
+function adjustSuitabilityScore({
+  score = 5,
+  jobTitle = '',
+  companyName = '',
+  jobDescription = '',
+  profile = {}
+} = {}) {
+  let adjusted = Number(score) || 5;
+  const title = String(jobTitle).toLowerCase();
+  const company = String(companyName).toLowerCase();
+  const desc = String(jobDescription).toLowerCase();
+  const combined = `${title} ${company} ${desc}`;
+  const profileBlob = JSON.stringify(profile).toLowerCase();
+
+  const candidateFintech =
+    /fintech|payments?|stablecoin|crypto|lending|credit|baas|financial infrastructure|yield|vault|paymentwall|spenmo|digital asset|exchange/.test(
+      profileBlob
+    );
+
+  const sweetSpotJd =
+    /pricing|payments?|monetization|billing|subscription|lending|credit|stablecoin|crypto|digital asset|exchange|treasury|fx|fintech|financial infrastructure|token|wallet/.test(
+      combined
+    );
+
+  const isProduct = isCoreProductRoleTitle(jobTitle);
+
+  if (isProduct && sweetSpotJd && candidateFintech) {
+    adjusted = Math.max(adjusted, 7);
+  }
+
+  if (isProduct && /pricing/.test(title) && candidateFintech) {
+    adjusted = Math.max(adjusted, 8);
+  }
+
+  if (/osl/.test(company) && isProduct) {
+    adjusted = Math.max(adjusted, 8);
+  }
+
+  // Hard caps — ERP / insurance only
+  const erpJd =
+    /general ledger|\bgl\b|oracle erp|sap erp|anaplan|tm1|workday financial|finance systems|erp product|budgeting system/.test(
+      combined
+    );
+  const hasFinanceFoundation =
+    /kpmg|finance controller|audit|financial control/.test(profileBlob) &&
+    /payments?|lending|credit|fintech/.test(profileBlob);
+
+  if (erpJd && !hasFinanceFoundation) {
+    adjusted = Math.min(adjusted, 4);
+  } else if (erpJd) {
+    adjusted = Math.min(adjusted, 5);
+  }
+
+  return Math.min(10, Math.max(1, Math.round(adjusted)));
+}
+
 // ----------------------------------------------------
 // PRE-PIPELINE SUITABILITY ASSESSMENT (ASSESS MATCH)
 // ----------------------------------------------------
@@ -1894,6 +2017,7 @@ app.post('/api/jobs/assess-match', async (req, res) => {
     }
 
     const cv = settings.profile || {};
+    const cleanDescription = sanitizeJobDescriptionForAssessment(jobDescription, jobTitle);
     
     const formattedExperience = (cv.experience || []).map(exp => {
       return `Company: ${exp.company}
@@ -1917,7 +2041,7 @@ ${recruiterPromptPart}
 Company: ${companyName}
 Title: ${jobTitle}
 Job Description:
-${jobDescription || 'Not provided'}
+${cleanDescription || 'Not provided'}
 
 **Candidate CV Details:**
 Name: ${cv.name || 'Not set'}
@@ -1940,6 +2064,10 @@ ${formattedExperience || 'No experience bullets set'}
    - Enterprise finance systems / ERP product ownership (GL, budgeting, Oracle, Anaplan, TM1): **max 5** if CV shows KPMG/audit/finance-control background plus payments or lending product leadership — still cap at **4** if no finance-side career foundation. **max 3** only if neither finance background nor relevant product work.
    - Owning GL/ERP as a **product manager** (not auditor/controller) is still the main gap — say so clearly.
    - Insurance / GAP / warranty / automotive finance product roles: **max 4** unless CV shows that domain.
+5. **Boost (when CV supports it — do not under-score these):**
+   - Product Manager/Lead/Director + **pricing, payments, monetization, billing, subscriptions, lending, credit, crypto, stablecoin, digital assets, or exchange**: **minimum 7** if CV shows fintech/payments product leadership (stablecoin, payments platforms, BaaS, lending, yield/pricing architecture).
+   - **OSL** or regulated crypto/digital-asset companies: stablecoin + payments infrastructure = strong fit for pricing product roles — **minimum 8**.
+   - Do NOT penalize for lacking retail/telco domain when the role is product leadership in pricing/monetization and CV shows financial product building.
 
 **Output Format:**
 You must return a single JSON object matching this structure exactly (do not output the placeholder angle brackets, replace with actual evaluated value):
@@ -2037,7 +2165,15 @@ You must return a single JSON object matching this structure exactly (do not out
       console.warn('[Server] Failed to parse suitability assessment response as JSON:', e.message);
     }
 
-    res.json({ success: true, score: parsed.score, explanation: parsed.explanation.trim() });
+    const finalScore = adjustSuitabilityScore({
+      score: parsed.score,
+      jobTitle,
+      companyName,
+      jobDescription: cleanDescription,
+      profile: cv
+    });
+
+    res.json({ success: true, score: finalScore, explanation: parsed.explanation.trim() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

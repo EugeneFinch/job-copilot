@@ -855,7 +855,7 @@ const RECRUITER_AGENCIES = [
   'tribe', 'reo group', 'denovo', 'sourced', 'g2', 'kinexus', 'm&t resources',
   'polyglot', 'peoplebank', 'talenza', 'trs resourcing', 'sirius', 'bluefin',
   'concept recruitment', 'method recruitment', 'mitchellake', 'xpand', 'interpro',
-  'robert walters', 'executive search'
+  'robert walters', 'executive search', 'cox purtell', 'purtell staffing'
 ];
 
 function shortRoleTitle(title = '') {
@@ -870,23 +870,34 @@ function isRecruiterPosting(company = '', isRecruiter = false) {
   return RECRUITER_AGENCIES.some((agency) => lower.includes(agency));
 }
 
+export function formatOutreachWorkRightsLine(visa = '') {
+  const v = String(visa || '').trim();
+  if (/pr|permanent resident/i.test(v)) {
+    return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+  }
+  if (v) return `${v} — looking forward to connect.`;
+  return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+}
+
 export function buildQuickOutreachMessage({
   title = '',
   company = '',
   contactFirstName = '',
-  isRecruiter = false
+  isRecruiter = false,
+  visa = ''
 } = {}) {
   const first = (contactFirstName || '').trim().split(/\s+/)[0];
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
   const recruiter = isRecruiterPosting(company, isRecruiter);
+  const workRights = formatOutreachWorkRightsLine(visa);
 
   let body;
   if (recruiter) {
-    body = `Eugene here — just applied for the ${role} role that you posted. Happy to chat if useful.`;
+    body = `Eugene here — just applied for the ${role} role that you posted. ${workRights}`;
   } else {
     const atCompany = company ? ` at ${company}` : '';
-    body = `Eugene here — just applied for the ${role} role${atCompany}. Happy to chat if useful.`;
+    body = `Eugene here — just applied for the ${role} role${atCompany}. ${workRights}`;
   }
 
   return `${greeting}\n\n${body}`.slice(0, 300);

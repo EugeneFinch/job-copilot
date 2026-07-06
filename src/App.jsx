@@ -71,7 +71,7 @@ const RECRUITER_AGENCIES = [
   'tribe', 'reo group', 'denovo', 'sourced', 'g2', 'kinexus', 'm&t resources',
   'polyglot', 'peoplebank', 'talenza', 'trs resourcing', 'sirius', 'bluefin',
   'concept recruitment', 'method recruitment', 'mitchellake', 'xpand', 'interpro',
-  'robert walters', 'executive search'
+  'robert walters', 'executive search', 'cox purtell', 'purtell staffing'
 ];
 
 function shortRoleTitle(title = '') {
@@ -86,18 +86,34 @@ function isRecruiterPosting(company = '', isRecruiter = false) {
   return RECRUITER_AGENCIES.some((agency) => lower.includes(agency));
 }
 
-function buildQuickOutreachMessage({ title = '', company = '', contactFirstName = '', isRecruiter = false } = {}) {
+function formatOutreachWorkRightsLine(visa = '') {
+  const v = String(visa || '').trim();
+  if (/pr|permanent resident/i.test(v)) {
+    return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+  }
+  if (v) return `${v} — looking forward to connect.`;
+  return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+}
+
+function buildQuickOutreachMessage({
+  title = '',
+  company = '',
+  contactFirstName = '',
+  isRecruiter = false,
+  visa = ''
+} = {}) {
   const first = (contactFirstName || '').trim().split(' ')[0];
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
   const recruiter = isRecruiterPosting(company, isRecruiter);
+  const workRights = formatOutreachWorkRightsLine(visa);
 
   let body;
   if (recruiter) {
-    body = `Eugene here — just applied for the ${role} role that you posted. Happy to chat if useful.`;
+    body = `Eugene here — just applied for the ${role} role that you posted. ${workRights}`;
   } else {
     const atCompany = company ? ` at ${company}` : '';
-    body = `Eugene here — just applied for the ${role} role${atCompany}. Happy to chat if useful.`;
+    body = `Eugene here — just applied for the ${role} role${atCompany}. ${workRights}`;
   }
 
   return `${greeting}\n\n${body}`.slice(0, 300);
@@ -456,7 +472,8 @@ export default function App() {
         ? buildQuickOutreachMessage({
             title: job.title,
             company: job.company,
-            isRecruiter: !!job.isRecruiter
+            isRecruiter: !!job.isRecruiter,
+            visa: localProfile?.visa
           })
         : '')
     );
@@ -1110,7 +1127,7 @@ export default function App() {
 
   // Filter and search logic
   const filteredJobs = jobs.filter(j => {
-    const isToProcessStatus = !['Applied', 'Invited', 'Dismissed', 'Skipped'].includes(j.status);
+    const isToProcessStatus = !['Applied', 'Invited', 'Dismissed', 'Skipped', 'Saved'].includes(j.status);
     const matchesStatus = statusFilter === 'All' || 
                           (statusFilter === 'To Process' ? isToProcessStatus : j.status === statusFilter);
     const matchesSource = sourceFilter === 'All' || j.source === sourceFilter;
@@ -1150,10 +1167,11 @@ export default function App() {
   };
 
   const getStats = () => {
-    const toProcessJobs = jobs.filter(j => !['Applied', 'Invited', 'Dismissed', 'Skipped'].includes(j.status));
+    const toProcessJobs = jobs.filter(j => !['Applied', 'Invited', 'Dismissed', 'Skipped', 'Saved'].includes(j.status));
     return {
       total: jobs.length,
       toProcess: toProcessJobs.length,
+      saved: jobs.filter(j => j.status === 'Saved').length,
       toProcessToday: toProcessJobs.filter(j => isToday(j.scrapedAt)).length,
       tailored: jobs.filter(j => j.tailoredCv).length,
       applied: jobs.filter(j => j.status === 'Applied').length,
@@ -1204,7 +1222,8 @@ export default function App() {
       title: job.title,
       company: job.company,
       contactFirstName: job.hiringManager?.startsWith('http') ? '' : job.hiringManager,
-      isRecruiter: !!job.isRecruiter
+      isRecruiter: !!job.isRecruiter,
+      visa: localProfile?.visa
     });
     navigator.clipboard.writeText(msg);
     alert('Connect message copied!');
@@ -1321,6 +1340,20 @@ export default function App() {
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>{stats.toProcessToday} added today</span>
                 </div>
               </div>
+              {stats.saved > 0 && (
+                <div 
+                  className="glass-card stat-card" 
+                  style={{ borderColor: 'rgba(167, 139, 250, 0.35)', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                  onClick={() => { setCurrentTab('jobs'); setStatusFilter('Saved'); setSourceFilter('All'); }}
+                >
+                  <div className="stat-icon" style={{ color: '#a78bfa' }}><Save size={20} /></div>
+                  <div className="stat-info">
+                    <h3>{stats.saved}</h3>
+                    <p>Saved for later</p>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Bookmarked — tailor when ready</span>
+                  </div>
+                </div>
+              )}
               <div 
                 className="glass-card stat-card green" 
                 style={{ cursor: 'pointer', transition: 'all 0.2s ease' }}
@@ -1729,7 +1762,7 @@ export default function App() {
             {/* Filter controls */}
             <div className="glass-card" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', gap: '20px', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {['All', 'To Process', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(status => (
+                {['All', 'To Process', 'Saved', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(status => (
                   <button 
                     key={status}
                     className={`btn ${statusFilter === status ? 'btn-primary' : 'btn-secondary'}`}
@@ -1969,7 +2002,7 @@ export default function App() {
                               fontWeight: '600'
                             }}
                           >
-                            {['To Process', 'Tailored', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(s => (
+                            {['To Process', 'Saved', 'Tailored', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(s => (
                               <option key={s} value={s} style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', textTransform: 'none' }}>{s}</option>
                             ))}
                           </select>
@@ -2322,7 +2355,7 @@ export default function App() {
                             }}
                             style={{ fontSize: '0.8rem', padding: '4px 24px 4px 12px' }}
                           >
-                            {['To Process', 'Tailored', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(s => (
+                            {['To Process', 'Saved', 'Tailored', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(s => (
                               <option key={s} value={s}>{s}</option>
                             ))}
                           </select>
@@ -2665,7 +2698,8 @@ export default function App() {
                                         title: selectedJob.title,
                                         company: selectedJob.company,
                                         contactFirstName: editingHiringManager?.startsWith('http') ? '' : editingHiringManager,
-                                        isRecruiter: !!selectedJob.isRecruiter
+                                        isRecruiter: !!selectedJob.isRecruiter,
+                                        visa: localProfile?.visa
                                       });
                                       setEditingHiringManagerIntro(msg);
                                       navigator.clipboard.writeText(msg);
