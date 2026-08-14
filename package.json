@@ -1,13 +1,20 @@
 {
-  "name": "aus-job-flow",
-  "private": true,
+  "name": "aus-job-copilot",
+  "private": false,
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "aus-job-flow": "bin/cli.js",
+    "job-search": "bin/cli.js"
+  },
   "scripts": {
+    "start": "node bin/cli.js",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node --watch server.js",
     "client": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/package-extension.js",
+    "prepublishOnly": "npm run build",
+    "package:extension": "node scripts/package-extension.js",
     "preview": "vite preview",
     "postinstall": "npx playwright install chromium",
     "server:persist-install": "node scripts/manage-daemon.js install",
@@ -33,5 +40,12 @@
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^8.2.2",
     "vite": "^5.3.1"
-  }
+  },
+  "files": [
+    "bin",
+    "dist",
+    "scripts",
+    "chrome-extension",
+    "server.js"
+  ]
 }

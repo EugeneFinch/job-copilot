@@ -184,17 +184,17 @@ export async function runApply(jobUrl, profile, coverLetterText, pdfPath, logCal
         } else if (combined.includes('visa') || combined.includes('sponsorship') || combined.includes('work authorization') || combined.includes('work rights')) {
           valueToFill = pVisa;
         } else if (combined.includes('address') || combined.includes('street')) {
-          valueToFill = profile?.address || "9 Revell Crescent, St Albans, VIC 3021";
+          valueToFill = profile?.address || "";
         } else if (combined.includes('city') || combined.includes('suburb') || combined.includes('town')) {
-          valueToFill = "St Albans";
+          valueToFill = profile?.address ? (profile.address.split(',')[1]?.trim() || profile.address) : "";
         } else if (combined.includes('state') || combined.includes('region') || combined.includes('province')) {
-          valueToFill = "Victoria";
+          valueToFill = "";
         } else if (combined.includes('zip') || combined.includes('postcode') || combined.includes('postal')) {
-          valueToFill = "3021";
+          valueToFill = "";
         } else if (combined.includes('location') && !combined.includes('job')) {
-          valueToFill = "St Albans, VIC";
+          valueToFill = profile?.address || "";
         } else if (combined.includes('notice') || combined.includes('availability') || combined.includes('start date') || combined.includes('how soon')) {
-          valueToFill = "Immediate (based in Victoria, visa subclass 858 permanent residency already granted)";
+          valueToFill = pVisa ? `Immediate (${pVisa})` : "Immediate";
         } else if (combined.includes('salary') || combined.includes('expectation') || combined.includes('compensation') || combined.includes('desired pay')) {
           valueToFill = "Negotiable / Market rate";
         }

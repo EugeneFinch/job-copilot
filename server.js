@@ -3,11 +3,12 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import { runScraper, scrapeJobUrl } from './scripts/scraper.js';
 import multer from 'multer';
-import { tailorCvAndLetter, DEFAULT_SYSTEM_PROMPT, generateCoverLetter } from './scripts/tailor.js';
+import { tailorCvAndLetter, DEFAULT_SYSTEM_PROMPT, generateCoverLetter, buildTailorPrompt, buildCoverLetterPrompt } from './scripts/tailor.js';
 import { parsePlainCv } from './scripts/cv_parser.js';
 import { generatePdf } from './scripts/pdf_generator.js';
 import { runApply } from './scripts/apply.js';
@@ -28,8 +29,129 @@ const PORT = process.env.PORT || 3004;
 app.use(cors());
 app.use(express.json());
 
-// Serve static generated files
-app.use('/data/generated', express.static(path.join(__dirname, 'data/generated')));
+// Persistent Data Storage Management
+export function getDataDir() {
+  if (process.env.JOB_SEARCH_DATA_DIR) {
+    return process.env.JOB_SEARCH_DATA_DIR;
+  }
+  return path.join(os.homedir(), '.job-search', 'data');
+}
+
+function getSettingsPath() { return path.join(getDataDir(), 'settings.json'); }
+function getJobsPath() { return path.join(getDataDir(), 'jobs.json'); }
+function getContactsPath() { return path.join(getDataDir(), 'contacts.json'); }
+function getExtensionStatePath() { return path.join(getDataDir(), 'extension_state.json'); }
+
+// Ensure database directories exist and sync initial repo data if needed
+function ensureDataDir() {
+  const dir = getDataDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const genDir = path.join(dir, 'generated');
+  if (!fs.existsSync(genDir)) {
+    fs.mkdirSync(genDir, { recursive: true });
+  }
+
+  // Auto-sync existing repo files to persistent home data dir if destination doesn't exist yet
+  const repoDataDir = path.join(__dirname, 'data');
+  if (fs.existsSync(repoDataDir) && repoDataDir !== dir) {
+    ['jobs.json', 'contacts.json', 'settings.json', 'crm_config.json'].forEach((file) => {
+      const src = path.join(repoDataDir, file);
+      const dest = path.join(dir, file);
+      if (fs.existsSync(src) && !fs.existsSync(dest)) {
+        try {
+          fs.copyFileSync(src, dest);
+          console.log(`[Data Persistence] Synced initial ${file} to ${dir}`);
+        } catch (e) {
+          console.warn(`[Data Persistence Warning] Failed syncing ${file}:`, e.message);
+        }
+      }
+    });
+
+    const repoGen = path.join(repoDataDir, 'generated');
+    if (fs.existsSync(repoGen)) {
+      try {
+        const files = fs.readdirSync(repoGen);
+        files.forEach((f) => {
+          const s = path.join(repoGen, f);
+          const d = path.join(genDir, f);
+          if (fs.statSync(s).isFile() && !fs.existsSync(d)) {
+            fs.copyFileSync(s, d);
+          }
+        });
+      } catch (e) {}
+    }
+  }
+
+  return dir;
+}
+
+// Atomic Safe JSON Read & Write Helpers with Backup Recovery
+function safeReadJson(filePath, defaultValue) {
+  ensureDataDir();
+  const bakFile = filePath + '.bak';
+
+  if (!fs.existsSync(filePath)) {
+    if (fs.existsSync(bakFile)) {
+      try {
+        console.log(`[Data Recovery] Restoring missing file from backup: ${bakFile}`);
+        const bakContent = JSON.parse(fs.readFileSync(bakFile, 'utf8'));
+        fs.writeFileSync(filePath, JSON.stringify(bakContent, null, 2), 'utf8');
+        return bakContent;
+      } catch (e) {}
+    }
+    return defaultValue;
+  }
+
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    if (!raw.trim()) throw new Error('File content is empty');
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error(`[Data Error] Parsing ${filePath} failed: ${err.message}`);
+    if (fs.existsSync(bakFile)) {
+      try {
+        console.log(`[Data Recovery] Restoring corrupted file from backup: ${bakFile}`);
+        const bakContent = JSON.parse(fs.readFileSync(bakFile, 'utf8'));
+        fs.writeFileSync(filePath, JSON.stringify(bakContent, null, 2), 'utf8');
+        return bakContent;
+      } catch (e) {
+        console.error(`[Data Recovery Failed] Backup also unreadable: ${bakFile}`);
+      }
+    }
+    return defaultValue;
+  }
+}
+
+function safeWriteJson(filePath, data) {
+  ensureDataDir();
+  const tmpFile = filePath + '.tmp';
+  const bakFile = filePath + '.bak';
+  const jsonStr = JSON.stringify(data, null, 2);
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.copyFileSync(filePath, bakFile);
+    } catch (e) {}
+  }
+
+  fs.writeFileSync(tmpFile, jsonStr, 'utf8');
+  fs.renameSync(tmpFile, filePath);
+}
+
+// Serve static generated files from persistent data directory with fallback to repo directory
+app.use('/data/generated', (req, res, next) => {
+  const primaryPath = path.join(getDataDir(), 'generated', req.path);
+  if (fs.existsSync(primaryPath) && fs.statSync(primaryPath).isFile()) {
+    return res.sendFile(primaryPath);
+  }
+  const fallbackPath = path.join(__dirname, 'data/generated', req.path);
+  if (fs.existsSync(fallbackPath) && fs.statSync(fallbackPath).isFile()) {
+    return res.sendFile(fallbackPath);
+  }
+  next();
+});
 
 // Serve compiled frontend static files
 const distPath = path.join(__dirname, 'dist');
@@ -38,33 +160,12 @@ if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 
-const SETTINGS_PATH = path.join(__dirname, 'data/settings.json');
-const JOBS_PATH = path.join(__dirname, 'data/jobs.json');
-const CONTACTS_PATH = path.join(__dirname, 'data/contacts.json');
-
-// Ensure database files exist
-function ensureDataDir() {
-  const dir = path.join(__dirname, 'data');
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
 function readContacts() {
-  ensureDataDir();
-  if (!fs.existsSync(CONTACTS_PATH)) {
-    return [];
-  }
-  try {
-    return JSON.parse(fs.readFileSync(CONTACTS_PATH, 'utf8'));
-  } catch {
-    return [];
-  }
+  return safeReadJson(getContactsPath(), []);
 }
 
 function writeContacts(data) {
-  ensureDataDir();
-  fs.writeFileSync(CONTACTS_PATH, JSON.stringify(data, null, 2), 'utf8');
+  safeWriteJson(getContactsPath(), data);
 }
 
 const CRM_FOLLOW_UP_DAYS = 7;
@@ -228,19 +329,16 @@ function cleanJsonText(text) {
 }
 
 function readSettings() {
-  ensureDataDir();
-  if (!fs.existsSync(SETTINGS_PATH)) {
-    return { 
-      geminiApiKey: '', 
-      deepSeekApiKey: '', 
-      targetKeywords: [], 
-      targetLocations: [], 
-      excludeCompanies: [], 
-      profile: {},
-      cvSystemPrompt: DEFAULT_SYSTEM_PROMPT
-    };
-  }
-  const data = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+  const defaultSettings = { 
+    geminiApiKey: '', 
+    deepSeekApiKey: '', 
+    targetKeywords: [], 
+    targetLocations: [], 
+    excludeCompanies: [], 
+    profile: {},
+    cvSystemPrompt: DEFAULT_SYSTEM_PROMPT
+  };
+  const data = safeReadJson(getSettingsPath(), defaultSettings);
   
   let migrated = false;
   let geminiApiKey = data.geminiApiKey || '';
@@ -260,36 +358,36 @@ function readSettings() {
   }
   
   const updatedSettings = {
-    geminiApiKey,
-    deepSeekApiKey,
-    excludeCompanies: [],
-    targetKeywords: [],
-    targetLocations: [],
-    profile: {},
-    cvSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    ...defaultSettings,
     ...data,
     geminiApiKey,
     deepSeekApiKey
   };
 
   if (migrated) {
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(updatedSettings, null, 2), 'utf8');
+    writeSettings(updatedSettings);
   }
 
   return updatedSettings;
 }
 
+function resolveApiKeys(settings = {}) {
+  let geminiApiKey = settings.geminiApiKey || '';
+  let deepSeekApiKey = settings.deepSeekApiKey || '';
+
+  if (geminiApiKey && !geminiApiKey.startsWith('AIzaSy')) {
+    geminiApiKey = '';
+  }
+
+  return { geminiApiKey, deepSeekApiKey };
+}
+
 function writeSettings(data) {
-  ensureDataDir();
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(data, null, 2), 'utf8');
+  safeWriteJson(getSettingsPath(), data);
 }
 
 function readJobs() {
-  ensureDataDir();
-  if (!fs.existsSync(JOBS_PATH)) {
-    return [];
-  }
-  const jobs = JSON.parse(fs.readFileSync(JOBS_PATH, 'utf8'));
+  const jobs = safeReadJson(getJobsPath(), []);
   let modified = false;
   const migratedJobs = jobs.map(j => {
     if (!j.source) {
@@ -299,14 +397,25 @@ function readJobs() {
     return j;
   });
   if (modified) {
-    fs.writeFileSync(JOBS_PATH, JSON.stringify(migratedJobs, null, 2), 'utf8');
+    safeWriteJson(getJobsPath(), migratedJobs);
   }
   return migratedJobs;
 }
 
 function writeJobs(data) {
-  ensureDataDir();
-  fs.writeFileSync(JOBS_PATH, JSON.stringify(data, null, 2), 'utf8');
+  safeWriteJson(getJobsPath(), data);
+}
+
+function getLatestAnalysisPath() {
+  return path.join(ensureDataDir(), 'latest_group_analysis.json');
+}
+
+function readLatestAnalysis() {
+  return safeReadJson(getLatestAnalysisPath(), null);
+}
+
+function writeLatestAnalysis(data) {
+  safeWriteJson(getLatestAnalysisPath(), data);
 }
 
 // Heuristic matcher in case LLM fails or is not configured
@@ -461,7 +570,7 @@ Return a JSON object containing the index of the best match and a brief reason:
   // Try Gemini first if key is available
   if (geminiApiKey) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
       response = await fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1055,7 +1164,7 @@ app.post('/api/jobs/import', async (req, res) => {
           log(`[Auto-PDF] Automatically generating CV PDF...`);
           const cleanCompany = (jobToSave.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
           const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
-          const outputPath = path.join(__dirname, 'data/generated', fileName);
+          const outputPath = path.join(getDataDir(), 'generated', fileName);
           await generatePdf(jobToSave.tailoredCv, outputPath);
           jobToSave.pdfPath = `/data/generated/${fileName}`;
           log(`[Auto-PDF] Successfully generated PDF!`);
@@ -1228,7 +1337,7 @@ app.post('/api/jobs/search', async (req, res) => {
           log(`[Auto-PDF] Automatically generating CV PDF...`);
           const cleanCompany = (jobToSave.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
           const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
-          const outputPath = path.join(__dirname, 'data/generated', fileName);
+          const outputPath = path.join(getDataDir(), 'generated', fileName);
           await generatePdf(jobToSave.tailoredCv, outputPath);
           jobToSave.pdfPath = `/data/generated/${fileName}`;
           log(`[Auto-PDF] Successfully generated PDF!`);
@@ -1261,11 +1370,9 @@ app.post('/api/jobs/:id/tailor', async (req, res) => {
   console.log(`[Server] POST /api/jobs/${req.params.id}/tailor received.`);
   try {
     const settings = readSettings();
-    const geminiApiKey = settings.geminiApiKey || (settings.deepSeekApiKey && (settings.deepSeekApiKey.startsWith('AIzaSy') || settings.deepSeekApiKey.startsWith('AQ.')) ? settings.deepSeekApiKey : '');
-    const deepSeekApiKey = settings.deepSeekApiKey && !settings.deepSeekApiKey.startsWith('AIzaSy') && !settings.deepSeekApiKey.startsWith('AQ.') ? settings.deepSeekApiKey : '';
-    const apiKeys = { geminiApiKey, deepSeekApiKey };
+    const apiKeys = resolveApiKeys(settings);
 
-    if (!geminiApiKey && !deepSeekApiKey) {
+    if (!apiKeys.geminiApiKey && !apiKeys.deepSeekApiKey) {
       return res.status(400).json({ error: 'Please set your API key in Settings first.' });
     }
 
@@ -1368,11 +1475,9 @@ app.post('/api/jobs/:id/cover-letter', async (req, res) => {
   console.log(`[Server] POST /api/jobs/${req.params.id}/cover-letter received.`);
   try {
     const settings = readSettings();
-    const geminiApiKey = settings.geminiApiKey || (settings.deepSeekApiKey && (settings.deepSeekApiKey.startsWith('AIzaSy') || settings.deepSeekApiKey.startsWith('AQ.')) ? settings.deepSeekApiKey : '');
-    const deepSeekApiKey = settings.deepSeekApiKey && !settings.deepSeekApiKey.startsWith('AIzaSy') && !settings.deepSeekApiKey.startsWith('AQ.') ? settings.deepSeekApiKey : '';
-    const apiKeys = { geminiApiKey, deepSeekApiKey };
+    const apiKeys = resolveApiKeys(settings);
 
-    if (!geminiApiKey && !deepSeekApiKey) {
+    if (!apiKeys.geminiApiKey && !apiKeys.deepSeekApiKey) {
       return res.status(400).json({ error: 'Please set your API key in Settings first.' });
     }
 
@@ -1413,6 +1518,487 @@ app.post('/api/jobs/:id/cover-letter', async (req, res) => {
     writeJobs(jobs);
 
     res.json({ success: true, coverLetter: coverResult.coverLetter, generatedByModel: coverResult.generatedByModel });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ----------------------------------------------------
+// GROUP DISMISSAL / REJECTION COHORT ANALYSIS
+// ----------------------------------------------------
+app.post('/api/jobs/analyze-dismissals-group', async (req, res) => {
+  console.log(`[Server] POST /api/jobs/analyze-dismissals-group received.`);
+  try {
+    const settings = readSettings();
+    const geminiApiKey = settings.geminiApiKey || (settings.deepSeekApiKey && (settings.deepSeekApiKey.startsWith('AIzaSy') || settings.deepSeekApiKey.startsWith('AQ.')) ? settings.deepSeekApiKey : '');
+    const deepSeekApiKey = settings.deepSeekApiKey && !settings.deepSeekApiKey.startsWith('AIzaSy') && !settings.deepSeekApiKey.startsWith('AQ.') ? settings.deepSeekApiKey : '';
+    
+    if (!geminiApiKey && !deepSeekApiKey) {
+      return res.status(400).json({ error: 'Please set your API key in Settings first.' });
+    }
+
+    const { ids } = req.body || {};
+    const jobs = readJobs();
+    
+    let targetJobs = [];
+    if (Array.isArray(ids) && ids.length > 0) {
+      targetJobs = jobs.filter(j => ids.includes(j.id));
+    } else {
+      targetJobs = jobs.filter(j => j.status === 'Dismissed');
+    }
+
+    if (targetJobs.length === 0) {
+      return res.status(400).json({ error: 'No jobs found to analyze. Please select at least one job or mark jobs as Dismissed.' });
+    }
+
+    const currentCustomInstructions = settings.customInstructions || '';
+    const baseProfile = settings.profile || {};
+    const formattedProfileExperience = (baseProfile.experience || []).map(exp => {
+      return `Company: ${exp.company} | Role: ${exp.role} (${exp.period})
+Bullets:
+${(exp.bullets || []).map(b => `- ${b}`).join('\n')}`;
+    }).join('\n\n');
+
+    const formattedJobs = targetJobs.map((j, idx) => {
+      const cv = j.tailoredCv || baseProfile;
+      const cvExp = (cv.experience || []).map(exp => `- ${exp.company} (${exp.role}): ${(exp.bullets || []).slice(0, 3).join('; ')}`).join('\n');
+      const prevAnalysis = j.dismissalAnalysis ? (typeof j.dismissalAnalysis === 'string' ? j.dismissalAnalysis : `What went wrong: ${j.dismissalAnalysis.whatWentWrong}`) : 'None';
+
+      return `### Job ${idx + 1}: ${j.title} at ${j.company} (${j.location || 'Remote'})
+- Job ID: ${j.id}
+- Status: ${j.status}
+- Suitability Assessment: ${j.suitabilityAssessment || 'N/A'} (Score: ${j.suitabilityScore || 'N/A'}/10)
+- Key Tailoring Gaps Identified: ${(j.experienceGaps || []).join(', ') || 'None noted'}
+- Job Description:
+${(j.description || 'Not provided').slice(0, 900)}
+- Tailored CV Details:
+  - Title Used: ${cv.title || 'Not specified'}
+  - Summary: ${cv.summary || 'Not specified'}
+  - Highlights:
+${cvExp}
+- Individual Rejection Feedback: ${prevAnalysis}`;
+    }).join('\n\n---------------------------------\n\n');
+
+    const prompt = `
+You are an expert Executive Tech Recruiter, Head of Talent, and ATS / Career Strategist.
+We are analyzing a cohort of ${targetJobs.length} job applications for candidate Eugene Bochkov that resulted in dismissals/rejections or require cohort failure analysis.
+
+**Candidate Base Profile:**
+Name: ${baseProfile.name || 'Eugene Bochkov'}
+Target Title: ${baseProfile.title || 'Senior Product Manager / Head of Product'}
+Experience Overview:
+${formattedProfileExperience}
+
+**Current Global Custom Instructions for CV Tailoring:**
+"${currentCustomInstructions}"
+
+**Cohort of ${targetJobs.length} Applications Analyzed:**
+${formattedJobs}
+
+**Instructions:**
+Perform a cross-application cohort diagnosis across these ${targetJobs.length} roles to identify systematic patterns, recurring friction points, and concrete improvements.
+
+CRITICAL CONSTRAINTS:
+1. STRICT FACTUALITY: Do NOT suggest fabricating or exaggerating metrics, roles, or skills not present in the candidate's actual background.
+2. DISTINGUISH TAILORING GAPS VS DOMAIN GAPS:
+   - Identify when the candidate actually HAS relevant background (e.g. Spenmo payments, Dirac AI LLMs/GPT-3, Vincere ATS workflows) but it was omitted or understated in tailoring.
+   - Contrast this with genuine market/domain mismatches (e.g. niche automotive hardware).
+3. ACTIONABLE PROMPT RECOMMENDATIONS: Formulate high-leverage rules to update the Global Custom Instructions so future applications convert better.
+
+Output format MUST be valid JSON matching this exact schema:
+{
+  "executiveSummary": "A direct 2-3 sentence diagnosis summarizing why this cohort of applications was dismissed.",
+  "analyzedCount": ${targetJobs.length},
+  "commonThemes": [
+    {
+      "theme": "Descriptive title of recurring failure pattern (e.g., Generalist/Founder Framing vs. Deep Domain IC)",
+      "explanation": "Brief explanation of how this affected these applications.",
+      "severity": "High"
+    }
+  ],
+  "profileGaps": [
+    "Specific gap or positioning mismatch across the cohort #1",
+    "Specific gap or positioning mismatch #2"
+  ],
+  "positiveSignals": [
+    "Strong elements in the profile/applications that should be preserved"
+  ],
+  "recommendedStrategy": [
+    "Immediate strategic action item for role targeting, outreach, or framing #1",
+    "Immediate strategic action item #2"
+  ],
+  "actionablePromptChanges": "Specific bullet points for prompt additions to fix these issues in future CV tailors.",
+  "suggestedRevisedInstructions": "The complete merged Global Custom Instructions text, combining all existing instructions with new rules."
+}
+`;
+
+    let response;
+    let success = false;
+    let errorMessages = [];
+
+    // Try Gemini first
+    if (geminiApiKey) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        response = await fetchWithRetry(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { 
+              responseMimeType: "application/json",
+              temperature: 0.3 
+            }
+          })
+        });
+
+        if (response.ok) {
+          success = true;
+        } else {
+          const errText = await response.text();
+          errorMessages.push(`Gemini Error (${response.status}): ${errText}`);
+        }
+      } catch (e) {
+        errorMessages.push(`Gemini Connection Error: ${e.message}`);
+      }
+    }
+
+    // Fallback to DeepSeek
+    if (!success && deepSeekApiKey) {
+      try {
+        const url = `https://api.deepseek.com/chat/completions`;
+        response = await fetchWithRetry(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${deepSeekApiKey}`
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.3
+          })
+        });
+
+        if (response.ok) {
+          success = true;
+        } else {
+          const errText = await response.text();
+          errorMessages.push(`DeepSeek Error (${response.status}): ${errText}`);
+        }
+      } catch (e) {
+        errorMessages.push(`DeepSeek Connection Error: ${e.message}`);
+      }
+    }
+
+    if (!success) {
+      return res.status(500).json({ error: `Group dismissal analysis failed. Errors: ${errorMessages.join(' | ')}` });
+    }
+
+    const resJson = await response.json();
+    let reply = '';
+    const hasGeminiKeyUsed = geminiApiKey && success && response.url.includes('googleapis.com');
+    if (hasGeminiKeyUsed) {
+      reply = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      reply = resJson.choices?.[0]?.message?.content || '';
+    }
+
+    let parsedAnalysis;
+    try {
+      parsedAnalysis = JSON.parse(cleanJsonText(reply));
+      if (!parsedAnalysis.executiveSummary) {
+        throw new Error('Missing executiveSummary in response JSON.');
+      }
+    } catch (err) {
+      console.warn('Failed to parse group dismissal analysis JSON, using fallback formatting.', err);
+      parsedAnalysis = {
+        executiveSummary: reply.slice(0, 300),
+        analyzedCount: targetJobs.length,
+        commonThemes: [
+          { theme: 'Rejection Pattern Analysis', explanation: reply, severity: 'Medium' }
+        ],
+        profileGaps: ['Review individual job gaps'],
+        positiveSignals: ['Strong foundational background'],
+        recommendedStrategy: ['Refine role targeting and prompt rules'],
+        actionablePromptChanges: 'Update custom instructions with specific role requirements.',
+        suggestedRevisedInstructions: currentCustomInstructions
+      };
+    }
+
+    const currentLen = currentCustomInstructions.trim().length;
+    const currentTokens = Math.ceil(currentLen / 4);
+    const revisedLen = (parsedAnalysis.suggestedRevisedInstructions || '').trim().length;
+    const revisedTokens = Math.ceil(revisedLen / 4);
+    const tokenDelta = revisedTokens - currentTokens;
+    const tokenDeltaPct = currentTokens > 0 ? Math.round((tokenDelta / currentTokens) * 100) : (revisedTokens > 0 ? 100 : 0);
+
+    const basePromptLen = (settings.cvSystemPrompt || '').length;
+    const basePromptTokens = Math.ceil(basePromptLen / 4);
+    const estTotalPerCall = basePromptTokens + revisedTokens + 800;
+
+    parsedAnalysis.tokenMetrics = {
+      currentPromptChars: currentLen,
+      currentPromptTokens: currentTokens,
+      revisedPromptChars: revisedLen,
+      revisedPromptTokens: revisedTokens,
+      tokenDelta,
+      tokenDeltaPct,
+      estTotalInputTokensPerCv: estTotalPerCall,
+      estCostPerCvFlash: `$${((estTotalPerCall / 1000000) * 0.075).toFixed(6)}`,
+      estCostPerCvDeepSeek: `$${((estTotalPerCall / 1000000) * 0.14).toFixed(6)}`
+    };
+
+    const payloadToSave = {
+      groupAnalysis: parsedAnalysis,
+      analyzedJobIds: targetJobs.map(j => j.id),
+      savedAt: new Date().toISOString()
+    };
+    writeLatestAnalysis(payloadToSave);
+
+    res.json({ success: true, count: targetJobs.length, groupAnalysis: parsedAnalysis, savedAt: payloadToSave.savedAt });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jobs/latest-dismissals-group', (req, res) => {
+  try {
+    const saved = readLatestAnalysis();
+    if (!saved || !saved.groupAnalysis) {
+      return res.json({ success: false, message: 'No prior group analysis saved.' });
+    }
+    res.json({ success: true, ...saved });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/jobs/simulate-prompt-ab', async (req, res) => {
+  console.log(`[Server] POST /api/jobs/simulate-prompt-ab received.`);
+  try {
+    const settings = readSettings();
+    const geminiApiKey = settings.geminiApiKey || (settings.deepSeekApiKey && (settings.deepSeekApiKey.startsWith('AIzaSy') || settings.deepSeekApiKey.startsWith('AQ.')) ? settings.deepSeekApiKey : '');
+    const deepSeekApiKey = settings.deepSeekApiKey && !settings.deepSeekApiKey.startsWith('AIzaSy') && !settings.deepSeekApiKey.startsWith('AQ.') ? settings.deepSeekApiKey : '';
+    
+    if (!geminiApiKey && !deepSeekApiKey) {
+      return res.status(400).json({ error: 'Please set your API key in Settings first.' });
+    }
+
+    const { jobId, proposedInstructions } = req.body || {};
+    const jobs = readJobs();
+    const job = jobs.find(j => j.id === jobId) || jobs[0];
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found to simulate against.' });
+    }
+
+    const currentInstructions = settings.customInstructions || '';
+    const proposed = proposedInstructions || currentInstructions;
+
+    const currentTokens = Math.ceil(currentInstructions.length / 4);
+    const proposedTokens = Math.ceil(proposed.length / 4);
+    const deltaTokens = proposedTokens - currentTokens;
+
+    const baseProfile = settings.profile || {};
+    const formattedProfileExp = (baseProfile.experience || []).slice(0, 5).map(exp => {
+      return `${exp.company} (${exp.role}): ${(exp.bullets || []).slice(0, 2).join('; ')}`;
+    }).join('\n');
+
+    const prompt = `
+You are an expert ATS & CV Optimization Simulator.
+We are running an A/B Test simulation comparing two different sets of Custom Tailoring Instructions for candidate Eugene Bochkov on this target job.
+
+**Target Job:**
+Title: ${job.title}
+Company: ${job.company}
+Job Description Snippet: ${(job.description || '').slice(0, 1000)}
+
+**Candidate Profile Excerpt:**
+${formattedProfileExp}
+
+**Version A (Current Instructions):**
+"${currentInstructions}"
+
+**Version B (Proposed Revised Instructions):**
+"${proposed}"
+
+**Task:**
+Generate a side-by-side comparison of the key tailored elements produced under Version A vs Version B for this specific job.
+Return ONLY valid JSON matching this schema exactly:
+{
+  "versionA": {
+    "title": "Professional Title tailored under Version A",
+    "summary": "2-sentence Summary tailored under Version A",
+    "leadHighlights": ["STAR bullet highlight 1", "STAR bullet highlight 2"]
+  },
+  "versionB": {
+    "title": "Professional Title tailored under Version B",
+    "summary": "2-sentence Summary tailored under Version B",
+    "leadHighlights": ["STAR bullet highlight 1", "STAR bullet highlight 2"]
+  },
+  "keyDifferences": "A concise 2-sentence explanation of what changed in Version B to address rejection gaps compared to Version A."
+}
+`;
+
+    let response;
+    let success = false;
+    let errorMessages = [];
+
+    if (geminiApiKey) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+        response = await fetchWithRetry(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0.2 }
+          })
+        });
+        if (response.ok) success = true;
+        else errorMessages.push(await response.text());
+      } catch (e) {
+        errorMessages.push(e.message);
+      }
+    }
+
+    if (!success && deepSeekApiKey) {
+      try {
+        const url = `https://api.deepseek.com/chat/completions`;
+        response = await fetchWithRetry(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${deepSeekApiKey}` },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.2
+          })
+        });
+        if (response.ok) success = true;
+        else errorMessages.push(await response.text());
+      } catch (e) {
+        errorMessages.push(e.message);
+      }
+    }
+
+    if (!success) {
+      return res.status(500).json({ error: `Simulation failed: ${errorMessages.join(' | ')}` });
+    }
+
+    const resJson = await response.json();
+    let reply = '';
+    const hasGeminiKeyUsed = geminiApiKey && success && response.url.includes('googleapis.com');
+    if (hasGeminiKeyUsed) {
+      reply = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      reply = resJson.choices?.[0]?.message?.content || '';
+    }
+
+    let parsedSim;
+    try {
+      parsedSim = JSON.parse(cleanJsonText(reply));
+    } catch (err) {
+      parsedSim = {
+        versionA: { title: job.title, summary: 'Version A standard summary', leadHighlights: [] },
+        versionB: { title: job.title, summary: 'Version B revised summary', leadHighlights: [] },
+        keyDifferences: reply
+      };
+    }
+
+    res.json({
+      success: true,
+      job: { id: job.id, title: job.title, company: job.company },
+      tokenMetrics: {
+        currentTokens,
+        proposedTokens,
+        deltaTokens,
+        deltaTokensPct: currentTokens > 0 ? Math.round((deltaTokens / currentTokens) * 100) : 100,
+        estCostPerCv: `$${(((proposedTokens + 800) / 1000000) * 0.075).toFixed(6)}`
+      },
+      simulation: parsedSim
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/jobs/:id/prompt-preview', (req, res) => {
+  try {
+    const settings = readSettings();
+    const jobs = readJobs();
+    const job = jobs.find(j => j.id === req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const baseProfile = settings.profile || {};
+    const jobSpecificInstructions = job.customInstructions || '';
+    const combinedInstructions = [
+      settings.customInstructions,
+      jobSpecificInstructions,
+      job.suitabilityAssessment ? `**Suitability Assessment (Use this to guide alignment and address gaps):**\n${job.suitabilityAssessment}` : ''
+    ].filter(Boolean).join('\n\n');
+
+    const tailorObj = buildTailorPrompt(
+      baseProfile,
+      job.description || '',
+      job.title || '',
+      job.company || '',
+      combinedInstructions,
+      settings.cvSystemPrompt || DEFAULT_SYSTEM_PROMPT,
+      job.isRecruiter
+    );
+
+    const coverObj = buildCoverLetterPrompt(
+      baseProfile,
+      job.description || '',
+      job.title || '',
+      job.company || '',
+      combinedInstructions,
+      job.tailoredCv || baseProfile,
+      {
+        experienceGaps: job.experienceGaps,
+        gapBridgeNote: job.gapBridgeNote,
+        transferableHighlights: job.transferableHighlights,
+        suitabilityAssessment: job.suitabilityAssessment
+      },
+      job.isRecruiter
+    );
+
+    const calcTokens = (text) => {
+      const chars = (text || '').length;
+      const words = (text || '').trim().split(/\s+/).filter(Boolean).length;
+      const tokens = Math.ceil(chars / 4);
+      const estCostFlash = ((tokens / 1000000) * 0.075).toFixed(6);
+      const estCostDeepSeek = ((tokens / 1000000) * 0.14).toFixed(6);
+      return { chars, words, tokens, estCostFlash: `$${estCostFlash}`, estCostDeepSeek: `$${estCostDeepSeek}` };
+    };
+
+    const cvMetrics = calcTokens(tailorObj.prompt);
+    const coverMetrics = calcTokens(coverObj.prompt);
+
+    res.json({
+      success: true,
+      job: { id: job.id, title: job.title, company: job.company },
+      detectedDomain: tailorObj.detectedDomain,
+      components: {
+        systemTemplateTokens: Math.ceil((settings.cvSystemPrompt || DEFAULT_SYSTEM_PROMPT).length / 4),
+        candidateProfileTokens: Math.ceil((tailorObj.formattedExp || '').length / 4),
+        jobDescriptionTokens: Math.ceil((tailorObj.formattedJd || '').length / 4),
+        customInstructionsTokens: Math.ceil((tailorObj.finalInstructions || '').length / 4)
+      },
+      prompts: {
+        cvTailoring: {
+          name: 'CV Tailoring Engine Prompt (System + Experience + JD)',
+          prompt: tailorObj.prompt,
+          metrics: cvMetrics
+        },
+        coverLetter: {
+          name: 'Cover Letter Engine Prompt',
+          prompt: coverObj.prompt,
+          metrics: coverMetrics
+        }
+      }
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1489,7 +2075,7 @@ ${formattedExperience || 'No experience bullets set'}
     // Try Gemini first
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1639,7 +2225,7 @@ Output format must be a valid JSON object matching this schema exactly:
     // Try Gemini first
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1791,7 +2377,7 @@ ${suitabilityAssessment ? `\n**Pre-Pipeline Suitability Assessment (Use this mat
     // Try Gemini
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
         
         // Map history to Gemini format (role must be 'user' or 'model')
         const contents = messages.map(msg => ({
@@ -2084,7 +2670,7 @@ You must return a single JSON object matching this structure exactly (do not out
     // Try Gemini first if key is available
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2245,7 +2831,7 @@ ${jobDescription || 'Not provided'}
     // Try Gemini
     if (geminiApiKey) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${geminiApiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
         response = await fetchWithRetry(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2331,6 +2917,48 @@ ${jobDescription || 'Not provided'}
   }
 });
 
+// BULK ACTION ENDPOINTS
+app.post('/api/jobs/bulk-status', (req, res) => {
+  try {
+    const { ids = [], status = '' } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0 || !status) {
+      return res.status(400).json({ error: 'ids array and status string required.' });
+    }
+    const jobs = readJobs();
+    let updatedCount = 0;
+    const now = new Date().toISOString();
+    jobs.forEach(j => {
+      if (ids.includes(j.id)) {
+        j.status = status;
+        j.lastActionDate = now;
+        updatedCount++;
+      }
+    });
+    writeJobs(jobs);
+    console.log(`[Server] Bulk updated status to "${status}" for ${updatedCount} jobs.`);
+    res.json({ success: true, updatedCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/jobs/bulk-delete', (req, res) => {
+  try {
+    const { ids = [] } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array required.' });
+    }
+    const jobs = readJobs();
+    const filtered = jobs.filter(j => !ids.includes(j.id));
+    const deletedCount = jobs.length - filtered.length;
+    writeJobs(filtered);
+    console.log(`[Server] Bulk deleted ${deletedCount} jobs.`);
+    res.json({ success: true, deletedCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ----------------------------------------------------
 
 // EXPORT CV TO PDF
@@ -2369,7 +2997,7 @@ app.post('/api/custom-pdf', upload.single('json'), async (req, res) => {
     }
     const timestamp = Date.now();
     const fileName = `Custom_CV_${timestamp}.pdf`;
-    const outputPath = path.join(__dirname, 'data/generated', fileName);
+    const outputPath = path.join(getDataDir(), 'generated', fileName);
     await generatePdf(cvData, outputPath);
     const pdfUrl = `/data/generated/${fileName}`;
     res.json({ pdfUrl });
@@ -2394,7 +3022,7 @@ app.post('/api/jobs/:id/pdf', async (req, res) => {
     const settings = readSettings();
     const cleanCompany = (job.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
     const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
-    const outputPath = path.join(__dirname, 'data/generated', fileName);
+    const outputPath = path.join(getDataDir(), 'generated', fileName);
 
     console.log('Generating PDF using premium HTML template cv_template.html...');
     await generatePdf(job.tailoredCv, outputPath);
@@ -2466,6 +3094,42 @@ app.post('/api/jobs/:id/apply', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
     res.end();
   }
+});
+
+// Route to serve Chrome Extension ZIP package
+app.get('/api/extension/download', (req, res) => {
+  const zipPath = path.join(__dirname, 'dist/chrome-extension.zip');
+  if (fs.existsSync(zipPath)) {
+    res.download(zipPath, '100x-job-copilot-extension.zip');
+  } else {
+    import('./scripts/package-extension.js').then(({ packageExtension }) => {
+      const generatedZip = packageExtension();
+      if (generatedZip && fs.existsSync(generatedZip)) {
+        res.download(generatedZip, '100x-job-copilot-extension.zip');
+      } else {
+        res.status(404).json({ error: 'Extension zip package not found. Run npm run build first.' });
+      }
+    }).catch(err => {
+      res.status(500).json({ error: err.message });
+    });
+  }
+});
+
+app.get('/chrome-extension.zip', (req, res) => {
+  res.redirect('/api/extension/download');
+});
+
+// Route for Chrome Extension backup state (queue & pending invites)
+app.get('/api/extension/state', (req, res) => {
+  const state = safeReadJson(getExtensionStatePath(), {});
+  res.json({ success: true, state });
+});
+
+app.post('/api/extension/state', (req, res) => {
+  const currentState = safeReadJson(getExtensionStatePath(), {});
+  const newState = { ...currentState, ...req.body, updatedAt: new Date().toISOString() };
+  safeWriteJson(getExtensionStatePath(), newState);
+  res.json({ success: true, state: newState });
 });
 
 // Route to serve the default CV

@@ -1,4 +1,23 @@
+# Logs & Cache
 node_modules/
 dist/
+dist/*.zip
 .DS_Store
-data/settings.json.backup
+logs/
+*.log
+
+# Personal User Data & Credentials
+data/
+scratch/
+.env
+.env.*
+*.bak
+*.tmp
+
+# Personal Documents & CVs
+*.pdf
+*.docx
+eugene_photo.png
+IMMI*.pdf
+Eugene_*.pdf
+Eugene_*.docx

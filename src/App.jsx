@@ -13,6 +13,7 @@ import {
   FileDown, 
   X, 
   ChevronRight, 
+  ChevronLeft,
   Trash2, 
   AlertCircle, 
   Calendar, 
@@ -24,7 +25,9 @@ import {
   Moon,
   Upload,
   Clock,
-  Bell
+  Bell,
+  Sparkles,
+  Layers
 } from 'lucide-react';
 
 const CRM_FOLLOW_UP_DAYS = 7;
@@ -99,24 +102,16 @@ function buildQuickOutreachMessage({
   title = '',
   company = '',
   contactFirstName = '',
-  isRecruiter = false,
-  visa = ''
+  isRecruiter = false
 } = {}) {
   const first = (contactFirstName || '').trim().split(' ')[0];
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
-  const recruiter = isRecruiterPosting(company, isRecruiter);
-  const workRights = formatOutreachWorkRightsLine(visa);
+  const atCompany = (company && !isRecruiter) ? ` at ${company}` : '';
 
-  let body;
-  if (recruiter) {
-    body = `Eugene here — just applied for the ${role} role that you posted. ${workRights}`;
-  } else {
-    const atCompany = company ? ` at ${company}` : '';
-    body = `Eugene here — just applied for the ${role} role${atCompany}. ${workRights}`;
-  }
+  const body = `Eugene here. Got full PR to Australia, living in Melbourne with 10+ years in Product. Just applied for the ${role} role${atCompany} — would love to connect and chat if you're open to it!`;
 
-  return `${greeting}\n\n${body}`.slice(0, 300);
+  return `${greeting}\n\n${body}`.slice(0, 290);
 }
 
 function formatModelBadge(job) {
@@ -392,8 +387,7 @@ export default function App() {
   const [tailoringJobId, setTailoringJobId] = useState(null);
   const [isGeneratingPdfId, setIsGeneratingPdfId] = useState(null);
   const [dismissalAnalysisLoading, setDismissalAnalysisLoading] = useState(null);
-  const [customText, setCustomText] = useState('');
-  const [customPdfUrl, setCustomPdfUrl] = useState(null);
+
   const [selectedJob, setSelectedJob] = useState(null);
   const [editingCoverLetter, setEditingCoverLetter] = useState('');
   const [editingWhyInterested, setEditingWhyInterested] = useState('');
@@ -418,6 +412,20 @@ export default function App() {
   const [promptRevisionResult, setPromptRevisionResult] = useState(null);
   const [editableRevisedPrompt, setEditableRevisedPrompt] = useState('');
   
+  const [groupAnalysisLoading, setGroupAnalysisLoading] = useState(false);
+  const [groupAnalysisResult, setGroupAnalysisResult] = useState(null);
+  const [editableGroupPrompt, setEditableGroupPrompt] = useState('');
+  const [groupPromptSaved, setGroupPromptSaved] = useState(false);
+  const [savedAnalysisData, setSavedAnalysisData] = useState(null);
+  const [savedAnalysisTimestamp, setSavedAnalysisTimestamp] = useState(null);
+  const [abSimulatingJobId, setAbSimulatingJobId] = useState('');
+  const [abSimulationLoading, setAbSimulationLoading] = useState(false);
+  const [activeAnalysisModalTab, setActiveAnalysisModalTab] = useState('insights'); // 'insights' | 'ab_test' | 'prompt'
+  const [inspectPromptLoading, setInspectPromptLoading] = useState(false);
+  const [promptPreviewData, setPromptPreviewData] = useState(null);
+  const [activePromptPreviewKey, setActivePromptPreviewKey] = useState('cvTailoring');
+  const [copiedPromptToast, setCopiedPromptToast] = useState(false);
+  
   // Contacts CRM state
   const [contacts, setContacts] = useState([]);
   const [isEditingContact, setIsEditingContact] = useState(null);
@@ -440,19 +448,101 @@ export default function App() {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [searchFilter, setSearchFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('All');
-  const [dateRangeFilter, setDateRangeFilter] = useState('7days'); // '7days' | 'all'
+  const [dateRangeFilter, setDateRangeFilter] = useState('all'); // '7days' | 'all'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc' | 'desc'
   const [importUrlsText, setImportUrlsText] = useState('');
   const [sourcingMode, setSourcingMode] = useState('search'); // 'search' | 'import'
+  const [selectedJobIds, setSelectedJobIds] = useState([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', sidebarCollapsed ? 'true' : 'false');
+  }, [sidebarCollapsed]);
+
+  const handleToggleSelectJob = (id) => {
+    setSelectedJobIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAllVisible = () => {
+    const visibleIds = filteredJobs.map(j => j.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedJobIds.includes(id));
+    if (allSelected) {
+      setSelectedJobIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedJobIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const handleSelectAllToday = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayIds = jobs.filter(j => {
+      const d = (j.scrapedAt || j.lastActionDate || '').split('T')[0];
+      return d === todayStr;
+    }).map(j => j.id);
+    if (todayIds.length === 0) {
+      alert('No jobs were saved or updated today.');
+      return;
+    }
+    setSelectedJobIds(todayIds);
+  };
+
+  const handleBulkUpdateStatus = async (newStatus) => {
+    if (selectedJobIds.length === 0) return;
+    try {
+      await fetch('/api/jobs/bulk-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedJobIds, status: newStatus })
+      });
+      fetchJobs();
+      setSelectedJobIds([]);
+    } catch (e) {
+      console.error('Bulk update status failed:', e);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedJobIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedJobIds.length} selected jobs permanently?`)) return;
+    try {
+      await fetch('/api/jobs/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedJobIds })
+      });
+      fetchJobs();
+      setSelectedJobIds([]);
+    } catch (e) {
+      console.error('Bulk delete failed:', e);
+    }
+  };
 
   const searchTerminalEndRef = useRef(null);
   const applyTerminalEndRef = useRef(null);
+
+  const fetchLatestAnalysis = async () => {
+    try {
+      const res = await fetch('/api/jobs/latest-dismissals-group');
+      const data = await res.json();
+      if (data.success && data.groupAnalysis) {
+        setSavedAnalysisData(data.groupAnalysis);
+        setSavedAnalysisTimestamp(data.savedAt);
+      }
+    } catch (e) {
+      console.error('Failed to fetch latest analysis:', e);
+    }
+  };
 
   // Load Settings, Jobs and Contacts on mount
   useEffect(() => {
     fetchSettings();
     fetchJobs();
     fetchContacts();
+    fetchLatestAnalysis();
   }, []);
 
   const handleSelectJob = (job) => {
@@ -1064,6 +1154,23 @@ export default function App() {
     }
   };
 
+  const handleUpdateJobNotes = async (jobId, newNotes) => {
+    const updated = jobs.map(j => j.id === jobId ? { ...j, notes: newNotes } : j);
+    setJobs(updated);
+    if (selectedJob && selectedJob.id === jobId) {
+      setSelectedJob(prev => prev ? { ...prev, notes: newNotes } : null);
+    }
+    try {
+      await fetch(`/api/jobs/${jobId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: newNotes })
+      });
+    } catch (e) {
+      console.error('Failed to update notes in DB');
+    }
+  };
+
   const handleAnalyzeDismissal = async (jobId) => {
     setDismissalAnalysisLoading(jobId);
     try {
@@ -1122,6 +1229,111 @@ export default function App() {
       alert('Custom Instructions updated successfully!');
     } catch (e) {
       alert('Failed to save updated instructions: ' + e.message);
+    }
+  };
+
+  const handleAnalyzeGroupDismissals = async (targetIds = null) => {
+    const idsToAnalyze = Array.isArray(targetIds) && targetIds.length > 0
+      ? targetIds
+      : (selectedJobIds.length > 0 ? selectedJobIds : null);
+    
+    setGroupAnalysisLoading(true);
+    setGroupPromptSaved(false);
+    try {
+      const res = await fetch('/api/jobs/analyze-dismissals-group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: idsToAnalyze })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert('Group Analysis Error: ' + (data.error || 'Failed to analyze'));
+      } else {
+        setGroupAnalysisResult(data.groupAnalysis);
+        setSavedAnalysisData(data.groupAnalysis);
+        setSavedAnalysisTimestamp(data.savedAt);
+        setEditableGroupPrompt(data.groupAnalysis.suggestedRevisedInstructions || settings.customInstructions || '');
+        setAbSimulationResult(null);
+        setActiveAnalysisModalTab('insights');
+      }
+    } catch (e) {
+      alert('Failed to run group dismissal analysis: ' + e.message);
+    } finally {
+      setGroupAnalysisLoading(false);
+    }
+  };
+
+  const handleOpenSavedAnalysis = () => {
+    if (!savedAnalysisData) return;
+    setGroupAnalysisResult(savedAnalysisData);
+    setEditableGroupPrompt(savedAnalysisData.suggestedRevisedInstructions || settings.customInstructions || '');
+    setAbSimulationResult(null);
+    setActiveAnalysisModalTab('insights');
+  };
+
+  const handleRunAbSimulation = async () => {
+    const targetJobId = abSimulatingJobId || (filteredJobs.find(j => j.status === 'Dismissed')?.id || jobs[0]?.id);
+    if (!targetJobId) {
+      alert('Please select a job to run the A/B simulation test against.');
+      return;
+    }
+    setAbSimulationLoading(true);
+    try {
+      const res = await fetch('/api/jobs/simulate-prompt-ab', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: targetJobId,
+          proposedInstructions: editableGroupPrompt
+        })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        alert('A/B Test Error: ' + (data.error || 'Simulation failed'));
+      } else {
+        setAbSimulationResult(data);
+      }
+    } catch (e) {
+      alert('Failed to run A/B simulation: ' + e.message);
+    } finally {
+      setAbSimulationLoading(false);
+    }
+  };
+
+  const handleApplyGroupPromptRevision = async () => {
+    try {
+      const updatedSettings = { ...settings, customInstructions: editableGroupPrompt };
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedSettings)
+      });
+      const data = await res.json();
+      setSettings(data);
+      setGroupPromptSaved(true);
+      setTimeout(() => setGroupPromptSaved(false), 3000);
+      alert('Global Custom Instructions updated & saved to Settings!');
+    } catch (e) {
+      alert('Failed to save updated instructions: ' + e.message);
+    }
+  };
+
+  const handleInspectJobPrompt = async (jobId) => {
+    if (!jobId) return;
+    setInspectPromptLoading(true);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/prompt-preview`);
+      const data = await res.json();
+      if (!data.success) {
+        alert('Prompt Inspection Error: ' + (data.error || 'Failed to generate prompt preview'));
+      } else {
+        setPromptPreviewData(data);
+        setActivePromptPreviewKey('cvTailoring');
+      }
+    } catch (e) {
+      alert('Failed to inspect prompt: ' + e.message);
+    } finally {
+      setInspectPromptLoading(false);
     }
   };
 
@@ -1229,13 +1441,66 @@ export default function App() {
     alert('Connect message copied!');
   };
 
+  const handleExportCvToCsv = (job) => {
+    if (!job || !job.tailoredCv) {
+      alert('No tailored CV generated for this job yet.');
+      return;
+    }
+    const cv = job.tailoredCv;
+    const headers = ['Company', 'Job Title', 'CV Title', 'Summary', 'Core Skills', 'Role', 'Period', 'Location', 'Bullet Points'];
+    const escapeCsv = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
+    
+    let rows = [];
+    if (cv.experience && cv.experience.length > 0) {
+      cv.experience.forEach((exp) => {
+        const bullets = (exp.bullets || []).join(' | ');
+        rows.push([
+          escapeCsv(job.company),
+          escapeCsv(job.title),
+          escapeCsv(cv.title),
+          escapeCsv(cv.summary),
+          escapeCsv(cv.coreSkills),
+          escapeCsv(exp.company + ' - ' + exp.role),
+          escapeCsv(exp.period),
+          escapeCsv(exp.location),
+          escapeCsv(bullets)
+        ].join(','));
+      });
+    } else {
+      rows.push([
+        escapeCsv(job.company),
+        escapeCsv(job.title),
+        escapeCsv(cv.title),
+        escapeCsv(cv.summary),
+        escapeCsv(cv.coreSkills),
+        '""', '""', '""', '""'
+      ].join(','));
+    }
+    
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    navigator.clipboard.writeText(csvContent);
+
+    // Also offer direct file download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const safeCompany = (job.company || 'job').replace(/[^a-z0-9]/gi, '_');
+    link.setAttribute('download', `tailored_cv_${safeCompany}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    alert('Tailored CV copied to clipboard & downloaded as CSV!');
+  };
+
   return (
     <div className="app-container">
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="logo-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div className="logo-glow">
+            <div className="logo-glow" title="100x Job Pilot">
               <Globe size={20} />
             </div>
             <div className="logo-text">
@@ -1243,20 +1508,33 @@ export default function App() {
               <p>100x Job Pilot</p>
             </div>
           </div>
-          <button 
-            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
-            className="btn btn-secondary" 
-            style={{ padding: '6px', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125, 125, 125, 0.1)', cursor: 'pointer' }}
-            title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
-          >
-            {theme === 'light' ? <Moon size={16} style={{ color: 'var(--text-main)' }} /> : <Sun size={16} style={{ color: 'var(--text-main)' }} />}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button 
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)} 
+              className="btn btn-secondary" 
+              style={{ padding: '6px', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125, 125, 125, 0.1)', cursor: 'pointer' }}
+              title={sidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {sidebarCollapsed ? <ChevronRight size={16} style={{ color: 'var(--text-main)' }} /> : <ChevronLeft size={16} style={{ color: 'var(--text-main)' }} />}
+            </button>
+            {!sidebarCollapsed && (
+              <button 
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+                className="btn btn-secondary" 
+                style={{ padding: '6px', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(125, 125, 125, 0.1)', cursor: 'pointer' }}
+                title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
+              >
+                {theme === 'light' ? <Moon size={16} style={{ color: 'var(--text-main)' }} /> : <Sun size={16} style={{ color: 'var(--text-main)' }} />}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="nav-links">
           <div 
             className={`nav-item ${currentTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => setCurrentTab('dashboard')}
+            title="Dashboard"
           >
             <LayoutDashboard size={18} />
             <span>Dashboard</span>
@@ -1264,11 +1542,13 @@ export default function App() {
           <div 
             className={`nav-item ${currentTab === 'jobs' ? 'active' : ''}`}
             onClick={() => setCurrentTab('jobs')}
+            title="Job Pipeline"
+            style={{ position: 'relative' }}
           >
             <Briefcase size={18} />
             <span>Job Pipeline</span>
             {outreachTasksCount > 0 && (
-              <span style={{ marginLeft: 'auto', background: '#f59e0b', color: '#000', fontSize: '0.65rem', fontWeight: '700', padding: '1px 6px', borderRadius: '10px' }}>
+              <span className="nav-item-badge" style={{ marginLeft: 'auto', background: '#f59e0b', color: '#000', fontSize: '0.65rem', fontWeight: '700', padding: '1px 6px', borderRadius: '10px' }}>
                 {outreachTasksCount}
               </span>
             )}
@@ -1276,45 +1556,37 @@ export default function App() {
           <div 
             className={`nav-item ${currentTab === 'profile' ? 'active' : ''}`}
             onClick={() => setCurrentTab('profile')}
+            title="Base Profile"
           >
             <User size={18} />
             <span>Base Profile</span>
           </div>
           <div 
-            className={`nav-item ${currentTab === 'contacts' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('contacts')}
-          >
-            <UserCheck size={18} />
-            <span>Contacts CRM</span>
-          </div>
-          <div 
-            className={`nav-item ${currentTab === 'customPdf' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('customPdf')}
-          >
-            <FileText size={18} />
-            <span>Custom PDF</span>
-          </div>
-          <div 
-            className={`nav-item ${currentTab === 'roadmap' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('roadmap')}
-          >
-            <Calendar size={18} />
-            <span>Roadmap</span>
-          </div>
-          <div 
             className={`nav-item ${currentTab === 'settings' ? 'active' : ''}`}
             onClick={() => setCurrentTab('settings')}
+            title="Settings"
           >
             <SettingsIcon size={18} />
             <span>Settings</span>
           </div>
+
+          <a 
+            href="/api/extension/download" 
+            download="100x-job-copilot-extension.zip"
+            className="nav-item" 
+            style={{ textDecoration: 'none', color: 'inherit', marginTop: '12px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '12px' }}
+            title="Download packaged Chrome Extension (.zip)"
+          >
+            <FileDown size={18} style={{ color: '#6366f1' }} />
+            <span>Extension Package (.zip)</span>
+          </a>
         </div>
 
 
       </div>
 
       {/* Main Content */}
-      <div className="main-content">
+      <div className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
         
         {/* TAB 1: DASHBOARD */}
         {currentTab === 'dashboard' && (
@@ -1394,169 +1666,24 @@ export default function App() {
 
             {/* Daily Processing Checklist */}
             {stats.toProcess > 0 ? (
-              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '16px', borderLeft: '4px solid var(--accent-purple)', background: 'var(--bg-tertiary)', marginBottom: '24px' }}>
-                <span style={{ fontSize: '1.8rem' }}>🎯</span>
+              <div className="glass-card" style={{ borderLeft: '3px solid var(--accent-purple)', background: 'var(--bg-tertiary)', marginBottom: '24px', padding: '18px 24px' }}>
                 <a href="?status=To%20Process" className="process-link" style={{ textDecoration: 'none', color: 'inherit' }} onClick={(e) => { e.preventDefault(); setCurrentTab('jobs'); setStatusFilter('To Process'); }}>
                   <div>
-                    <h4 style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>You have {stats.toProcess} roles to process today!</h4>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>
+                    <h4 style={{ fontSize: '1rem', fontWeight: '600' }}>You have {stats.toProcess} roles to process today</h4>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '2px' }}>
                       Tailor your CV and Cover Letter for these new roles to stand out to hiring managers.
                     </p>
                   </div>
                 </a>
               </div>
             ) : (
-              <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '16px', borderLeft: '4px solid var(--accent-green)', background: 'var(--bg-tertiary)', marginBottom: '24px' }}>
-                <span style={{ fontSize: '1.8rem' }}>🎉</span>
+              <div className="glass-card" style={{ borderLeft: '3px solid var(--accent-green)', background: 'var(--bg-tertiary)', marginBottom: '24px', padding: '18px 24px' }}>
                 <div>
-                  <h4 style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>You're all caught up! No tasks left for today.</h4>
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px' }}>
-                    Awesome work! Time to trigger the <strong>Sourcing Engine</strong> below to find and scrape more job opportunities.
+                  <h4 style={{ fontSize: '1rem', fontWeight: '600' }}>All caught up</h4>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '2px' }}>
+                    No roles pending review. Trigger the Sourcing Engine below to find new opportunities.
                   </p>
                 </div>
-              </div>
-            )}
-
-            {/* Post-Apply Outreach CRM */}
-            {(appliedJobsNeedingOutreach.length > 0 || outreachReadyContacts.length > 0 || waitingContacts.length > 0 || followUpDueContacts.length > 0) && (
-              <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-cyan)', background: 'var(--bg-tertiary)', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <UserCheck size={18} className="text-cyan" />
-                    Post-Apply Outreach CRM
-                  </h3>
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => setCurrentTab('contacts')}>
-                    Open Full CRM
-                  </button>
-                </div>
-
-                {appliedJobsNeedingOutreach.length > 0 && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--accent-cyan)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Applied — Find & Add Hiring Manager ({appliedJobsNeedingOutreach.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {appliedJobsNeedingOutreach.slice(0, 5).map((job) => (
-                        <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
-                          <div>
-                            <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{job.title}</div>
-                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{job.company}</div>
-                          </div>
-                          <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleAddContactForJob(job)}>
-                            Add Hiring Manager
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {outreachReadyContacts.length > 0 && (
-                  <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#38bdf8', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Ready to Message ({outreachReadyContacts.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {outreachReadyContacts.slice(0, 5).map((contact) => {
-                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
-                        const outreachMsg = contact.lastOutboundSnippet || (contact.notes?.includes('AI Outreach Message: ') ? contact.notes.split('AI Outreach Message: ')[1] : '');
-                        return (
-                          <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
-                            <div>
-                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>
-                                {fullName} · <span style={{ color: 'var(--accent-cyan)' }}>{contact.company}</span>
-                              </div>
-                              {contact.jobTitle && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Role: {contact.jobTitle}</div>}
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              {contact.profileUrl && (
-                                <a href={contact.profileUrl} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem', textDecoration: 'none' }}>
-                                  <ExternalLink size={12} /> Profile
-                                </a>
-                              )}
-                              {outreachMsg && (
-                                <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => { navigator.clipboard.writeText(outreachMsg); alert('Outreach message copied!'); }}>
-                                  Copy Intro
-                                </button>
-                              )}
-                              <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Waiting')}>
-                                Invite Sent — Wait
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {waitingContacts.length > 0 && (
-                  <div style={{ marginBottom: followUpDueContacts.length > 0 ? '16px' : 0 }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#a78bfa', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Clock size={14} /> Waiting for Reply ({waitingContacts.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {waitingContacts.slice(0, 5).map((contact) => {
-                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
-                        const daysLeft = daysUntil(contact.nextFollowUpAt);
-                        return (
-                          <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
-                            <div>
-                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{fullName} at {contact.company}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                Invited {contact.inviteSentAt ? formatFollowUpDate(contact.inviteSentAt) : 'recently'}
-                                {contact.nextFollowUpAt && ` · Follow up ${daysLeft !== null && daysLeft <= 0 ? 'due now' : `in ${daysLeft}d`} (${formatFollowUpDate(contact.nextFollowUpAt)})`}
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Replied')}>
-                                Got Reply
-                              </button>
-                              <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleSnoozeFollowUp(contact.id)}>
-                                Remind in 7d
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {followUpDueContacts.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Bell size={14} /> Follow Up Needed ({followUpDueContacts.length})
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {followUpDueContacts.slice(0, 5).map((contact) => {
-                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
-                        const outreachMsg = contact.lastOutboundSnippet || '';
-                        return (
-                          <div key={contact.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(245, 158, 11, 0.08)', padding: '10px 14px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.25)', flexWrap: 'wrap', gap: '10px' }}>
-                            <div>
-                              <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{fullName} at {contact.company}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No reply yet — time to nudge</div>
-                            </div>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                              {outreachMsg && (
-                                <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => { navigator.clipboard.writeText(outreachMsg); alert('Message copied — send a follow-up!'); }}>
-                                  Copy Message
-                                </button>
-                              )}
-                              <button className="btn btn-cyan" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleSnoozeFollowUp(contact.id)}>
-                                Remind in 7d
-                              </button>
-                              <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Replied')}>
-                                Replied
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1668,101 +1795,14 @@ export default function App() {
             <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h2>Job Application Pipeline</h2>
-                <p>Manage, tailor, auto-apply, and track outreach for each role.</p>
+                <p>Manage, tailor, auto-apply, and track your applications.</p>
               </div>
-              {outreachTasksCount > 0 && (
-                <button
-                  className="btn btn-cyan"
-                  style={{ padding: '8px 14px', fontSize: '0.8rem' }}
-                  onClick={() => setStatusFilter('Applied')}
-                >
-                  {outreachTasksCount} outreach task{outreachTasksCount === 1 ? '' : 's'} pending
-                </button>
-              )}
             </div>
-
-            {/* Outreach board — linked to Applied jobs */}
-            {appliedOutreachCount > 0 && (statusFilter === 'Applied' || statusFilter === 'Invited' || statusFilter === 'All') && (
-              <div className="glass-card" style={{ marginBottom: '20px', padding: '16px', borderLeft: '4px solid var(--accent-cyan)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <UserCheck size={18} className="text-cyan" />
-                      Outreach Board
-                    </h3>
-                    <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      Applied jobs → who to message → waiting → follow up → done
-                    </p>
-                  </div>
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.75rem' }} onClick={() => setCurrentTab('contacts')}>
-                    Full CRM
-                  </button>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(180px, 1fr))', gap: '12px', overflowX: 'auto' }}>
-                  {OUTREACH_BOARD_COLUMNS.map((col) => (
-                    <div key={col.id} style={{ background: 'var(--bg-tertiary)', borderRadius: '10px', border: '1px solid var(--border-color)', minHeight: '120px' }}>
-                      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: '700', color: col.color, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          {col.title} ({outreachBoard[col.id].length})
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>{col.hint}</div>
-                      </div>
-                      <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
-                        {outreachBoard[col.id].length === 0 ? (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '8px', textAlign: 'center' }}>—</div>
-                        ) : (
-                          outreachBoard[col.id].map(({ job, primaryContact }) => (
-                            <div
-                              key={job.id}
-                              style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', cursor: 'pointer' }}
-                              onClick={() => handleSelectJob(job)}
-                            >
-                              <div style={{ fontWeight: '600', fontSize: '0.8rem' }}>{job.company}</div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '6px' }}>{job.title}</div>
-                              {primaryContact && (
-                                <div style={{ fontSize: '0.68rem', color: col.color }}>
-                                  {primaryContact.firstName} {primaryContact.lastName}
-                                </div>
-                              )}
-                              <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                                <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleCopyQuickMsgForJob(job)}>
-                                  Copy Msg
-                                </button>
-                                {col.id === 'to-reach-out' && !primaryContact && (
-                                  <button className="btn btn-cyan" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleAddContactForJob(job)}>
-                                    Add HM
-                                  </button>
-                                )}
-                                {primaryContact && col.id === 'to-reach-out' && (
-                                  <button className="btn btn-cyan" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleUpdateContactStatus(primaryContact.id, 'Waiting')}>
-                                    Sent
-                                  </button>
-                                )}
-                                {primaryContact && col.id === 'waiting' && (
-                                  <button className="btn btn-secondary" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleUpdateContactStatus(primaryContact.id, 'Replied')}>
-                                    Replied
-                                  </button>
-                                )}
-                                {primaryContact && col.id === 'follow-up' && (
-                                  <button className="btn btn-cyan" style={{ padding: '2px 6px', fontSize: '0.65rem' }} onClick={() => handleSnoozeFollowUp(primaryContact.id)}>
-                                    +7d
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Filter controls */}
             <div className="glass-card" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', gap: '20px', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {['All', 'To Process', 'Saved', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(status => (
+                {['All', 'To Process', 'Applied', 'Silence', 'Invited', 'Dismissed'].map(status => (
                   <button 
                     key={status}
                     className={`btn ${statusFilter === status ? 'btn-primary' : 'btn-secondary'}`}
@@ -1828,6 +1868,96 @@ export default function App() {
               </div>
             </div>
 
+            {/* Dismissed Filter Cohort Banner */}
+            {statusFilter === 'Dismissed' && (
+              <div className="glass-card" style={{ padding: '14px 20px', marginBottom: '16px', background: 'rgba(255, 59, 48, 0.06)', border: '1px solid rgba(255, 59, 48, 0.25)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '12px', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(255, 59, 48, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-red)' }}>
+                    <AlertCircle size={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      Dismissed Applications Intelligence
+                      {savedAnalysisTimestamp && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                          (Saved analysis from {new Date(savedAnalysisTimestamp).toLocaleDateString()})
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      Diagnose failure patterns, run A/B prompt simulations, and track token impact before applying custom rules.
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {savedAnalysisData && (
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ padding: '6px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={handleOpenSavedAnalysis}
+                      title="Re-open your previously generated analysis without using any API tokens"
+                    >
+                      <FileText size={14} />
+                      View Saved Analysis (0 Tokens)
+                    </button>
+                  )}
+                  {filteredJobs.length > 0 && (
+                    <button 
+                      className="btn btn-danger" 
+                      style={{ padding: '6px 14px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={() => handleAnalyzeGroupDismissals(filteredJobs.map(j => j.id))}
+                      disabled={groupAnalysisLoading}
+                    >
+                      <Sparkles size={14} />
+                      {groupAnalysisLoading ? <span className="loading-dots">Analyzing All</span> : `Run New Cohort Analysis`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Bulk Action Toolbar */}
+            {selectedJobIds.length > 0 ? (
+              <div className="glass-card" style={{ padding: '10px 16px', marginBottom: '16px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <strong style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{selectedJobIds.length} jobs selected</strong>
+                  <button className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: '0.75rem' }} onClick={() => setSelectedJobIds([])}>Deselect All</button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {savedAnalysisData && (
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ padding: '5px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '5px' }} 
+                      onClick={handleOpenSavedAnalysis}
+                      title="Re-open previously saved analysis (Free)"
+                    >
+                      <FileText size={14} />
+                      View Saved Analysis
+                    </button>
+                  )}
+                  <button 
+                    className="btn" 
+                    style={{ padding: '5px 12px', fontSize: '0.78rem', backgroundColor: 'rgba(255, 59, 48, 0.15)', color: 'var(--accent-red)', border: '1px solid rgba(255, 59, 48, 0.3)', display: 'flex', alignItems: 'center', gap: '5px' }} 
+                    onClick={() => handleAnalyzeGroupDismissals(selectedJobIds)}
+                    disabled={groupAnalysisLoading}
+                  >
+                    <Sparkles size={14} />
+                    {groupAnalysisLoading ? <span className="loading-dots">Analyzing</span> : `Analyze Rejections (${selectedJobIds.length})`}
+                  </button>
+                  <button className="btn btn-cyan" style={{ padding: '5px 12px', fontSize: '0.78rem' }} onClick={() => handleBulkUpdateStatus('Applied')}>Mark as Applied</button>
+                  <button className="btn btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem' }} onClick={() => handleBulkUpdateStatus('To Process')}>Mark as To Process</button>
+                  <button className="btn btn-secondary" style={{ padding: '5px 12px', fontSize: '0.78rem' }} onClick={() => handleBulkUpdateStatus('Dismissed')}>Mark as Dismissed</button>
+                  <button className="btn" style={{ padding: '5px 12px', fontSize: '0.78rem', backgroundColor: '#ef4444', color: '#ffffff', border: 'none' }} onClick={handleBulkDelete}>Delete Selected</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }} onClick={handleSelectAllToday} title="Select all jobs saved or updated today">
+                  Select All Saved Today
+                </button>
+              </div>
+            )}
+
             {/* Pipeline Table */}
             <div className="glass-card" style={{ padding: '0px', overflowX: 'auto' }}>
               {filteredJobs.length === 0 ? (
@@ -1836,9 +1966,18 @@ export default function App() {
                   No jobs found matching the active filter.
                 </div>
               ) : (
-                <table className="pipeline-table">
+                <table className="pipeline-table" style={{ minWidth: '1100px' }}>
                   <thead>
                     <tr>
+                      <th style={{ width: '40px', textAlign: 'center' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={filteredJobs.length > 0 && filteredJobs.every(j => selectedJobIds.includes(j.id))}
+                          onChange={handleToggleSelectAllVisible}
+                          style={{ cursor: 'pointer' }}
+                          title="Select / Deselect all visible jobs"
+                        />
+                      </th>
                       <th>Company & Title</th>
                       <th>Location</th>
                       <th onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')} style={{ cursor: 'pointer', userSelect: 'none' }}>Last Action Date {sortOrder === 'desc' ? '↓' : '↑'}</th>
@@ -1852,6 +1991,14 @@ export default function App() {
                   <tbody>
                     {filteredJobs.map(job => (
                       <tr key={job.id} className="pipeline-row">
+                        <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox" 
+                            checked={selectedJobIds.includes(job.id)}
+                            onChange={() => handleToggleSelectJob(job.id)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </td>
                         <td>
                           <a 
                             href={job.url || '#'} 
@@ -2002,39 +2149,72 @@ export default function App() {
                               fontWeight: '600'
                             }}
                           >
-                            {['To Process', 'Saved', 'Tailored', 'Applied', 'Invited', 'Dismissed', 'Skipped'].map(s => (
-                              <option key={s} value={s} style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', textTransform: 'none' }}>{s}</option>
+                            {['To Process', 'Applied', 'Silence', 'Invited', 'Dismissed', 'Saved'].map(s => (
+                              <option key={s} value={s} style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', textTransform: 'none' }}>
+                                {s}
+                              </option>
                             ))}
                           </select>
                         </td>
                         <td>
-                          {(() => {
-                            const outreach = getJobOutreachInfo(job, contacts);
-                            if (outreach.stage === 'n/a') {
-                              return <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>—</span>;
-                            }
-                            const stageColors = {
-                              'to-reach-out': '#38bdf8',
-                              waiting: '#a78bfa',
-                              'follow-up': '#f59e0b',
-                              done: '#10b981'
-                            };
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
-                                <span className="badge" style={{ fontSize: '0.65rem', borderColor: stageColors[outreach.stage], color: stageColors[outreach.stage] }}>
-                                  {outreach.label}
-                                </span>
-                                {outreach.stage === 'to-reach-out' && (
-                                  <button className="btn btn-cyan" style={{ padding: '2px 8px', fontSize: '0.65rem' }} onClick={() => handleCopyQuickMsgForJob(job)}>
-                                    Copy Msg
-                                  </button>
-                                )}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <button 
+                                className="btn btn-cyan" 
+                                style={{ padding: '2px 8px', fontSize: '0.65rem' }} 
+                                onClick={() => handleCopyQuickMsgForJob(job)}
+                                title="Copy tailored HM outreach message"
+                              >
+                                Copy Msg
+                              </button>
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: '2px 8px', fontSize: '0.65rem' }}
+                                onClick={() => {
+                                  const updated = window.prompt(`Application note for ${job.company}:`, job.notes || '');
+                                  if (updated !== null) {
+                                    handleUpdateJobNotes(job.id, updated.trim());
+                                  }
+                                }}
+                                title="Add/Edit application note"
+                              >
+                                {job.notes ? 'Edit Note' : '+ Note'}
+                              </button>
+                            </div>
+                            {job.notes && (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', border: '1px solid var(--border-color)', padding: '2px 6px', borderRadius: '4px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={job.notes}>
+                                {job.notes}
                               </div>
-                            );
-                          })()}
+                            )}
+                          </div>
                         </td>
                         <td>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <button
+                              className="btn btn-cyan"
+                              style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTailorJob(job.id);
+                              }}
+                              disabled={tailoringJobId === job.id}
+                              title="Regenerate tailored CV & cover letter with latest prompt rules"
+                            >
+                              {tailoringJobId === job.id ? 'Tailoring...' : (job.tailoredCv ? 'Regenerate' : 'Tailor CV')}
+                            </button>
+                            {job.tailoredCv && (
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleExportCvToCsv(job);
+                                }}
+                                title="Export tailored CV to CSV"
+                              >
+                                Export CSV
+                              </button>
+                            )}
                             <button 
                               className="btn" 
                               style={{ 
@@ -2089,6 +2269,75 @@ export default function App() {
                     
                     {/* LEFT COLUMN: Job Metadata & Description */}
                     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+                      
+                      {/* Post-Apply & Outreach Hub */}
+                      <div className="glass-card" style={{ padding: '16px', marginBottom: '16px', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(56, 189, 248, 0.08) 100%)', border: '1px solid rgba(99, 102, 241, 0.25)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#6366f1', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <UserCheck size={16} />
+                            Post-Apply & HM Outreach
+                          </h4>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {['Applied', 'Silence', 'Invited', 'Dismissed'].map(status => (
+                              <button
+                                key={status}
+                                className={`btn ${selectedJob.status === status ? 'btn-cyan' : 'btn-secondary'}`}
+                                style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                                onClick={() => handleUpdateJobStatus(selectedJob.id, status)}
+                              >
+                                {status}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-tertiary)', padding: '10px', borderRadius: '8px', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ fontSize: '0.8rem' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Hiring Manager: </span>
+                            <strong>{selectedJob.hiringManager || 'Not specified'}</strong>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <a
+                              href={selectedJob.hiringManager?.startsWith('http') ? selectedJob.hiringManager : `https://www.linkedin.com/search/results/all/?keywords=${encodeURIComponent(`hiring manager ${selectedJob.company || ''}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-secondary"
+                              style={{ padding: '3px 8px', fontSize: '0.72rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <ExternalLink size={12} />
+                              Search HM
+                            </a>
+                            <button
+                              className="btn btn-cyan"
+                              style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                              onClick={() => handleCopyQuickMsgForJob(selectedJob)}
+                            >
+                              Copy Msg
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                            Application Notes & HM Contact History:
+                          </label>
+                          <textarea
+                            rows={3}
+                            className="form-input"
+                            style={{ width: '100%', fontSize: '0.82rem', fontFamily: 'inherit', resize: 'vertical', background: 'var(--bg-tertiary)' }}
+                            placeholder="e.g. Sent LinkedIn connection request to HM on Aug 12. Follow-up scheduled for Aug 19."
+                            value={selectedJob.notes || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSelectedJob({ ...selectedJob, notes: val });
+                            }}
+                            onBlur={() => {
+                              handleUpdateJobNotes(selectedJob.id, selectedJob.notes || '');
+                            }}
+                          />
+                        </div>
+                      </div>
+
                       <div className="glass-card" style={{ padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <h4 style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', margin: 0 }}>Edit Job Details</h4>
@@ -2241,65 +2490,7 @@ export default function App() {
                           />
                         </div>
 
-                        {selectedJob.status === 'Applied' && (
-                          <div className="glass-card" style={{ borderLeft: '4px solid var(--accent-cyan)', background: 'var(--bg-tertiary)', padding: '14px', marginBottom: '12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                              <h5 style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent-cyan)' }}>
-                                Outreach CRM
-                              </h5>
-                              <button className="btn btn-cyan" style={{ padding: '4px 10px', fontSize: '0.7rem' }} onClick={() => handleAddContactForJob(selectedJob)}>
-                                <Plus size={12} /> Add Contact
-                              </button>
-                            </div>
-                            {getContactsForJob(contacts, selectedJob).length === 0 ? (
-                              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-                                Applied — now find the hiring manager on LinkedIn, add them here, send an invite, then mark as waiting.
-                              </p>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {getContactsForJob(contacts, selectedJob).map((contact) => {
-                                  const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
-                                  const daysLeft = daysUntil(contact.nextFollowUpAt);
-                                  return (
-                                    <div key={contact.id} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '10px' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                                        <div>
-                                          <div style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{fullName}</div>
-                                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                            Status: {contact.status}
-                                            {contact.nextFollowUpAt && ` · Follow up ${daysLeft !== null && daysLeft <= 0 ? 'due' : `in ${daysLeft}d`}`}
-                                          </div>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                          {contact.profileUrl && (
-                                            <a href={contact.profileUrl} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem', textDecoration: 'none' }}>
-                                              Profile
-                                            </a>
-                                          )}
-                                          {(contact.status === 'To Contact' || contact.status === 'To Source') && (
-                                            <button className="btn btn-cyan" style={{ padding: '4px 8px', fontSize: '0.7rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Waiting')}>
-                                              Invite Sent
-                                            </button>
-                                          )}
-                                          {(contact.status === 'Waiting' || contact.status === 'Invite Sent' || contact.status === 'Follow Up Needed') && (
-                                            <>
-                                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem' }} onClick={() => handleSnoozeFollowUp(contact.id)}>
-                                                Remind 7d
-                                              </button>
-                                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem' }} onClick={() => handleUpdateContactStatus(contact.id, 'Replied')}>
-                                                Replied
-                                              </button>
-                                            </>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
+
 
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: '4px' }}>Relevance Score (1-10)</label>
@@ -2341,8 +2532,31 @@ export default function App() {
 
                     {/* RIGHT COLUMN: Tailoring CV / Cover Letter */}
                     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <h4 style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase' }}>Tailored Artifacts</h4>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <h4 style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', margin: 0 }}>Tailored Artifacts</h4>
+                          {selectedJob.tailoredCv && (
+                            <button
+                              className="btn btn-secondary"
+                              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+                              onClick={() => handleTailorJob(selectedJob.id)}
+                              disabled={tailoringJobId === selectedJob.id}
+                              title="Regenerate CV & cover letter"
+                            >
+                              {tailoringJobId === selectedJob.id ? <span className="loading-dots">Regenerating</span> : 'Regenerate'}
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.72rem', padding: '3px 8px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--accent-blue)', borderColor: 'rgba(0, 122, 255, 0.3)' }}
+                            onClick={() => handleInspectJobPrompt(selectedJob.id)}
+                            disabled={inspectPromptLoading}
+                            title="Inspect verbatim prompt sent to LLM & token count breakdown"
+                          >
+                            <FileText size={12} />
+                            {inspectPromptLoading ? <span className="loading-dots">Loading</span> : 'Inspect Prompt & Tokens'}
+                          </button>
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <label className="form-label" style={{ margin: 0, fontSize: '0.75rem' }}>Pipeline Status:</label>
                           <select 
@@ -2460,7 +2674,7 @@ export default function App() {
                                 {promptRevisionResult && (
                                   <div style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                                     <h6 style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--accent-purple)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                      ✨ Proposed Prompt Revision
+                                      Proposed Prompt Revision
                                     </h6>
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '8px', lineHeight: '1.4' }}>
                                       <strong>Explanation:</strong> {promptRevisionResult.explanation}
@@ -2816,7 +3030,13 @@ export default function App() {
                                   </>
                                 )}
 
-
+                                <button
+                                  className="btn btn-secondary"
+                                  onClick={() => handleExportCvToCsv(selectedJob)}
+                                  title="Export tailored CV summary and bullets to CSV"
+                                >
+                                  <FileDown size={14} /> Export CSV
+                                </button>
                               </div>
                             </div>
                           </>
@@ -2844,161 +3064,6 @@ export default function App() {
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {/* TAB 5: CUSTOM PDF */}
-        {currentTab === 'customPdf' && (
-          <div className="glass-card" style={{ padding: '24px' }}>
-            <h2>Generate PDF from Plain Text CV</h2>
-            <textarea
-              className="form-input"
-              style={{ width: '100%', height: '200px', fontFamily: 'monospace', marginBottom: '12px' }}
-              placeholder="Paste your edited CV text here..."
-              value={customText}
-              onChange={e => setCustomText(e.target.value)}
-            />
-            <button
-              className="btn btn-cyan"
-              onClick={async () => {
-                try {
-                  const res = await fetch('/api/custom-pdf', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rawText: customText })
-                  });
-                  const data = await res.json();
-                  if (data.error) {
-                    alert('Error: ' + data.error);
-                  } else {
-                    setCustomPdfUrl(data.pdfUrl);
-                  }
-                } catch (e) {
-                  alert('Failed to generate PDF: ' + e.message);
-                }
-              }}
-              disabled={!customText.trim()}
-              style={{ marginRight: '12px' }}
-            >
-              Generate PDF
-            </button>
-            {customPdfUrl && (
-              <a href={customPdfUrl} target="_blank" rel="noopener" className="btn btn-primary">
-                Download PDF
-              </a>
-            )}
-          </div>
-        )}
-
-        {/* TAB: ROADMAP */}
-        {currentTab === 'roadmap' && (
-          <div>
-            <div className="dashboard-header">
-              <div>
-                <h2>Roadmap & Milestones</h2>
-                <p>Project milestones, recently shipped features, and planned capabilities.</p>
-              </div>
-              <div className="badge badge-tailored">Current Active Phase</div>
-            </div>
-
-            <div className="glass-card" style={{ padding: '32px' }}>
-              <div className="roadmap-timeline">
-                
-                {/* Milestone 1 */}
-                <div className="roadmap-item completed">
-                  <div className="roadmap-badge-col">
-                    <div className="roadmap-dot checked">✓</div>
-                    <div className="roadmap-line"></div>
-                  </div>
-                  <div className="roadmap-content-col">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <h3 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>Milestone 1: Automated Sourcing Scraper</h3>
-                      <span className="badge badge-applied" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>Shipped</span>
-                    </div>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
-                      Built the background crawling system using Google Search queries, scraping boards like Greenhouse, Lever, and Ashby for Product Manager roles in Australia. Integrated Gemini models to score candidate fit, automatically tailor bullet points, and compile final PDF copies.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Milestone 2 */}
-                <div className="roadmap-item completed">
-                  <div className="roadmap-badge-col">
-                    <div className="roadmap-dot checked">✓</div>
-                    <div className="roadmap-line"></div>
-                  </div>
-                  <div className="roadmap-content-col">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <h3 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>Milestone 2: Copilot Chrome Extension (V1.0)</h3>
-                      <span className="badge badge-applied" style={{ color: '#38bdf8', borderColor: '#38bdf8' }}>Shipped</span>
-                    </div>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
-                      Created a custom manifest V3 extension panel. Enabled local server handshakes, auto-filling standard application forms (contact info, PR visa rights details, notice period, portfolio links), and one-click PDF downloading and submission.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Milestone 3 */}
-                <div className="roadmap-item active">
-                  <div className="roadmap-badge-col">
-                    <div className="roadmap-dot pulse-glow-cyan" style={{ background: '#38bdf8', color: '#000000', fontWeight: 'bold' }}>⚡</div>
-                    <div className="roadmap-line"></div>
-                  </div>
-                  <div className="roadmap-content-col" style={{ borderLeft: '3px solid #38bdf8', paddingLeft: '16px', background: 'rgba(56, 189, 248, 0.02)', borderRadius: '0 12px 12px 0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <h3 style={{ fontSize: '1.2rem', color: '#38bdf8', fontWeight: '700' }}>Milestone 3: LinkedIn Sourcing & Extension Pipeline</h3>
-                      <span className="badge badge-tailored" style={{ color: '#c084fc', borderColor: '#c084fc' }}>Active</span>
-                    </div>
-                    <p style={{ color: 'var(--text-main)', fontSize: '0.9rem', lineHeight: '1.5', fontWeight: '500' }}>
-                      Allows direct, user-driven sourcing while browsing LinkedIn. When the user selects jobs, the extension intercepts details, resolves query parameters into a canonical link, and saves it directly to the database. These are marked as "Extension Sourced" in the Pipeline.
-                    </p>
-                    <div style={{ marginTop: '12px', background: 'var(--bg-tertiary)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
-                      <strong>How to test this feature:</strong>
-                      <ol style={{ paddingLeft: '20px', marginTop: '6px', color: 'var(--text-muted)' }}>
-                        <li>Install the unpacked extension folder <code>chrome-extension/</code> in your Chrome browser.</li>
-                        <li>Navigate to any LinkedIn job search or view page.</li>
-                        <li>Open the Copilot sidebar by clicking the floating icon.</li>
-                        <li>Click <strong>"Save to Pipeline"</strong> to store it in the pipeline as <em>Extension Sourced</em>.</li>
-                      </ol>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Milestone 4 */}
-                <div className="roadmap-item planned">
-                  <div className="roadmap-badge-col">
-                    <div className="roadmap-dot">4</div>
-                    <div className="roadmap-line"></div>
-                  </div>
-                  <div className="roadmap-content-col">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <h3 style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>Milestone 4: Interview & Screening Prep AI</h3>
-                      <span className="badge" style={{ color: 'var(--text-muted)', borderColor: 'var(--border-color)' }}>Planned</span>
-                    </div>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
-                      Generate custom behavioral interview prep briefs, salary range benchmarking, and specific questions to ask the interviewer based on the tailored CV and target company details.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Milestone 5 */}
-                <div className="roadmap-item planned">
-                  <div className="roadmap-badge-col">
-                    <div className="roadmap-dot">5</div>
-                  </div>
-                  <div className="roadmap-content-col">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <h3 style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>Milestone 5: Multi-Channel Email Tracker</h3>
-                      <span className="badge" style={{ color: 'var(--text-muted)', borderColor: 'var(--border-color)' }}>Planned</span>
-                    </div>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5' }}>
-                      Integrate Gmail IMAP parsing to auto-identify incoming responses, record application rejections or schedule interview calls directly in the dashboard calendar view.
-                    </p>
-                  </div>
-                </div>
-
-              </div>
-            </div>
           </div>
         )}
 
@@ -3094,7 +3159,7 @@ export default function App() {
                   <input 
                     type="text" 
                     className="form-input" 
-                    placeholder="e.g. 9 Revell Crescent, St Albans, VIC 3021"
+                    placeholder="e.g. Melbourne, VIC Australia"
                     value={localProfile.address || ''} 
                     onChange={(e) => setLocalProfile({ ...localProfile, address: e.target.value })} 
                   />
@@ -3231,348 +3296,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3.5: CONTACTS CRM */}
-        {currentTab === 'contacts' && (
-          <div>
-            <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h2>Contact Sourcing & CRM</h2>
-                <p>Track LinkedIn/Telegram outreach, connections, and responses in one unified local view.</p>
-              </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <label className="btn btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <Upload size={16} /> Import CRM CSV
-                  <input 
-                    type="file" 
-                    accept=".csv" 
-                    style={{ display: 'none' }} 
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleImportContactsCSV(e.target.files[0]);
-                      }
-                    }}
-                  />
-                </label>
-                <button 
-                  className="btn btn-cyan" 
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => {
-                    clearContactForm();
-                    setIsEditingContact(null);
-                    setShowAddContactModal(true);
-                  }}
-                >
-                  <Plus size={16} /> Add Lead
-                </button>
-              </div>
-            </div>
 
-            {/* CRM Stats Grid */}
-            <div className="stats-grid" style={{ marginBottom: '24px' }}>
-              <div className="glass-card stat-card cyan">
-                <div className="stat-icon"><User size={20} /></div>
-                <div className="stat-info">
-                  <h3>{contacts.length}</h3>
-                  <p>Total Leads</p>
-                </div>
-              </div>
-              <div className="glass-card stat-card green" style={{ borderColor: 'rgba(56, 189, 248, 0.3)' }}>
-                <div className="stat-icon" style={{ color: '#38bdf8' }}><Send size={20} /></div>
-                <div className="stat-info">
-                  <h3>{contacts.filter(c => c.status === 'To Contact').length}</h3>
-                  <p>Outreach Pending</p>
-                </div>
-              </div>
-              <div className="glass-card stat-card green" style={{ borderColor: 'rgba(167, 139, 250, 0.3)' }}>
-                <div className="stat-icon" style={{ color: '#a78bfa' }}><Clock size={20} /></div>
-                <div className="stat-info">
-                  <h3>{contacts.filter(c => c.status === 'Invite Sent' || c.status === 'Waiting').length}</h3>
-                  <p>Waiting for Reply</p>
-                </div>
-              </div>
-              <div className="glass-card stat-card green" style={{ borderColor: 'rgba(245, 158, 11, 0.3)' }}>
-                <div className="stat-icon" style={{ color: '#f59e0b' }}><Bell size={20} /></div>
-                <div className="stat-info">
-                  <h3>{contacts.filter(c => c.followUpNeeded || c.status === 'Follow Up Needed').length}</h3>
-                  <p>Follow Up Due</p>
-                </div>
-              </div>
-              <div className="glass-card stat-card green">
-                <div className="stat-icon"><CheckCircle size={20} /></div>
-                <div className="stat-info">
-                  <h3>{contacts.filter(c => c.status === 'Replied').length}</h3>
-                  <p>Replies / Connected</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Filter bar */}
-            <div className="glass-card" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', gap: '20px', alignItems: 'center', marginBottom: '24px' }}>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                {['All', 'To Contact', 'To Source', 'Waiting', 'Invite Sent', 'Replied', 'Follow Up Needed'].map(status => (
-                  <button 
-                    key={status}
-                    className={`btn ${contactStatusFilter === status ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                    onClick={() => setContactStatusFilter(status)}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
-              
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-tertiary)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', width: '300px' }}>
-                  <Search size={16} className="text-muted" style={{ marginRight: '8px' }} />
-                  <input 
-                    type="text" 
-                    placeholder="Search by name, company, or notes..." 
-                    value={contactSearch}
-                    onChange={(e) => setContactSearch(e.target.value)}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-main)', width: '100%', outline: 'none', fontSize: '0.85rem' }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* CRM Contacts Table */}
-            <div className="glass-card" style={{ padding: '0px', overflowX: 'auto' }}>
-              {contacts.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  <AlertCircle style={{ display: 'block', margin: '0 auto 12px auto' }} />
-                  No contacts found. Use the "Import CRM CSV" button above or add one manually.
-                </div>
-              ) : (
-                <table className="pipeline-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Company</th>
-                      <th>Linked Role</th>
-                      <th>Outreach Status</th>
-                      <th>Follow Up</th>
-                      <th>Outbox Shortcut</th>
-                      <th>Latest Message Snippet / Notes</th>
-                      <th>Last Update</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {contacts
-                      .filter(c => {
-                        const matchesStatus = contactStatusFilter === 'All' || c.status === contactStatusFilter;
-                        const query = contactSearch.toLowerCase();
-                        const matchesSearch = 
-                          `${c.firstName || ''} ${c.lastName || ''}`.toLowerCase().includes(query) ||
-                          (c.company || '').toLowerCase().includes(query) ||
-                          (c.notes || '').toLowerCase().includes(query) ||
-                          (c.lastOutboundSnippet || '').toLowerCase().includes(query) ||
-                          (c.lastInboundSnippet || '').toLowerCase().includes(query);
-                        return matchesStatus && matchesSearch;
-                      })
-                      .map(contact => {
-                        const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Hiring Manager';
-                        const snippet = contact.lastOutboundSnippet || contact.lastInboundSnippet || contact.notes || '';
-                        
-                        return (
-                          <tr key={contact.id} className="pipeline-row">
-                            <td>
-                              {contact.profileUrl ? (
-                                <a 
-                                  href={contact.profileUrl} 
-                                  target="_blank" 
-                                  rel="noreferrer" 
-                                  style={{ color: 'var(--text-main)', textDecoration: 'none', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                >
-                                  {fullName} <ExternalLink size={12} className="text-muted" />
-                                </a>
-                              ) : (
-                                <span style={{ fontWeight: 'bold' }}>{fullName}</span>
-                              )}
-                            </td>
-                            <td>
-                              <span style={{ color: 'var(--text-muted)' }}>{contact.company || 'N/A'}</span>
-                            </td>
-                            <td>
-                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                {contact.jobTitle || '—'}
-                              </span>
-                            </td>
-                            <td>
-                              <select
-                                className={`status-select badge badge-${(contact.status || 'To Contact').toLowerCase().replace(/\s+/g, '-')}`}
-                                value={contact.status || 'To Contact'}
-                                onChange={(e) => handleUpdateContactStatus(contact.id, e.target.value)}
-                                style={{ 
-                                  cursor: 'pointer',
-                                  padding: '4px 24px 4px 10px',
-                                  fontFamily: 'inherit',
-                                  borderRadius: '20px',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.05em',
-                                  fontSize: '0.75rem',
-                                  fontWeight: '600'
-                                }}
-                              >
-                                {['To Contact', 'To Source', 'Waiting', 'Invite Sent', 'Replied', 'Follow Up Needed'].map(s => (
-                                  <option key={s} value={s} style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', textTransform: 'none' }}>{s}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td>
-                              <span style={{ fontSize: '0.8rem', color: contact.followUpNeeded || contact.status === 'Follow Up Needed' ? '#f59e0b' : 'var(--text-muted)' }}>
-                                {contact.status === 'Waiting' || contact.status === 'Invite Sent'
-                                  ? (contact.nextFollowUpAt
-                                    ? (daysUntil(contact.nextFollowUpAt) <= 0 ? 'Due now' : `In ${daysUntil(contact.nextFollowUpAt)}d`)
-                                    : 'Waiting')
-                                  : contact.followUpNeeded || contact.status === 'Follow Up Needed'
-                                    ? 'Action needed'
-                                    : '—'}
-                              </span>
-                            </td>
-                            <td>
-                              {contact.threadUrl ? (
-                                <a 
-                                  href={contact.threadUrl} 
-                                  target="_blank" 
-                                  rel="noreferrer" 
-                                  className="badge" 
-                                  style={{ 
-                                    borderColor: 'var(--accent-cyan)', 
-                                    color: 'var(--accent-cyan)', 
-                                    background: 'rgba(56, 189, 248, 0.05)',
-                                    textDecoration: 'none',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '4px'
-                                  }}
-                                >
-                                  Open Chat
-                                </a>
-                              ) : (
-                                <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No Link</span>
-                              )}
-                            </td>
-                            <td style={{ maxWidth: '300px' }}>
-                              <div 
-                                style={{ 
-                                  fontSize: '0.85rem', 
-                                  color: 'var(--text-muted)',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis'
-                                }} 
-                                title={snippet}
-                              >
-                                {snippet || '—'}
-                              </div>
-                            </td>
-                            <td>
-                              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                                {contact.updatedAt ? new Date(contact.updatedAt).toLocaleDateString() : 'N/A'}
-                              </span>
-                            </td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                <button 
-                                  className="btn btn-secondary" 
-                                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                                  onClick={() => handleOpenEditContact(contact)}
-                                >
-                                  Edit
-                                </button>
-                                <button 
-                                  className="btn btn-danger"
-                                  style={{ padding: '6px 8px' }}
-                                  onClick={() => handleDeleteContact(contact.id)}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Add/Edit Contact Modal */}
-            {showAddContactModal && (
-              <div className="slide-panel-backdrop" onClick={() => { setShowAddContactModal(false); setIsEditingContact(null); clearContactForm(); }}>
-                <div className="slide-panel" style={{ width: '450px', maxWidth: '95%', padding: '24px', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                    <h3 style={{ fontSize: '1.2rem' }}>{isEditingContact ? 'Edit Contact Details' : 'Add New Lead / Recruiter'}</h3>
-                    <button className="btn btn-secondary" style={{ padding: '4px' }} onClick={() => { setShowAddContactModal(false); setIsEditingContact(null); clearContactForm(); }}>
-                      <X size={18} />
-                    </button>
-                  </div>
-                  <form onSubmit={handleSaveContact} style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, overflowY: 'auto' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">First Name</label>
-                      <input type="text" className="form-input" value={contactFirstName} onChange={(e) => setContactFirstName(e.target.value)} required />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Last Name</label>
-                      <input type="text" className="form-input" value={contactLastName} onChange={(e) => setContactLastName(e.target.value)} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Company</label>
-                      <input type="text" className="form-input" value={contactCompany} onChange={(e) => setContactCompany(e.target.value)} required />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Linked Job Role</label>
-                      <select
-                        className="status-select"
-                        style={{ width: '100%', borderRadius: '8px' }}
-                        value={contactJobId || ''}
-                        onChange={(e) => {
-                          const job = jobs.find((j) => j.id === e.target.value);
-                          setContactJobId(e.target.value);
-                          setContactJobTitle(job?.title || '');
-                          if (job?.company && !contactCompany) setContactCompany(job.company);
-                        }}
-                      >
-                        <option value="">-- Optional: link to applied job --</option>
-                        {jobs.filter((j) => j.status === 'Applied' || j.status === 'Invited').map((job) => (
-                          <option key={job.id} value={job.id}>{job.title} @ {job.company}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">LinkedIn Profile URL</label>
-                      <input type="url" className="form-input" value={contactProfileUrl} onChange={(e) => setContactProfileUrl(e.target.value)} placeholder="https://www.linkedin.com/in/..." />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Chat Thread URL (LinkedIn / Telegram)</label>
-                      <input type="url" className="form-input" value={contactThreadUrl} onChange={(e) => setContactThreadUrl(e.target.value)} placeholder="https://www.linkedin.com/messaging/thread/... or Telegram chat link" />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Outreach Status</label>
-                      <select className="status-select" style={{ width: '100%', borderRadius: '8px' }} value={contactStatus} onChange={(e) => setContactStatus(e.target.value)}>
-                        <option value="To Contact">To Contact</option>
-                        <option value="To Source">To Source (find HM)</option>
-                        <option value="Waiting">Waiting (invite sent)</option>
-                        <option value="Invite Sent">Invite Sent</option>
-                        <option value="Replied">Replied</option>
-                        <option value="Follow Up Needed">Follow Up Needed</option>
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Conversation Notes & Outbox Snip</label>
-                      <textarea className="form-input" style={{ height: '100px' }} value={contactNotes} onChange={(e) => setContactNotes(e.target.value)} placeholder="E.g. Relocating, has Australian PR..." />
-                    </div>
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '12px', justifyContent: 'flex-end' }}>
-                      <button type="button" className="btn btn-secondary" onClick={() => { setShowAddContactModal(false); setIsEditingContact(null); clearContactForm(); }}>Cancel</button>
-                      <button type="submit" className="btn btn-cyan">Save Lead</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* TAB 4: SETTINGS */}
         {currentTab === 'settings' && (
@@ -3645,7 +3369,7 @@ export default function App() {
                   <textarea 
                     className="form-input" 
                     style={{ height: '80px' }}
-                    placeholder="e.g. MYOB&#10;Atlassian"
+                    placeholder="e.g. MYOB, Atlassian"
                     value={(settings.excludeCompanies || []).join('\n')} 
                     onChange={(e) => setSettings({ ...settings, excludeCompanies: e.target.value.split('\n').filter(Boolean) })}
                   />
@@ -3659,9 +3383,14 @@ export default function App() {
                     value={settings.customInstructions || ''} 
                     onChange={(e) => setSettings({ ...settings, customInstructions: e.target.value })} 
                   />
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    These instructions will be appended to the AI prompt when tailoring your CV and Cover Letter.
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                      These instructions will be appended to the AI prompt when tailoring your CV and Cover Letter.
+                    </p>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '600', color: 'var(--accent-blue)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                      ~{Math.ceil((settings.customInstructions || '').length / 4)} tokens ({(settings.customInstructions || '').length} chars)
+                    </span>
+                  </div>
                 </div>
 
                 <div className="form-group">
@@ -3673,13 +3402,18 @@ export default function App() {
                     value={settings.cvSystemPrompt || ''} 
                     onChange={(e) => setSettings({ ...settings, cvSystemPrompt: e.target.value })} 
                   />
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    Define the core prompt instructions for CV tailoring. Supported placeholders: 
-                    <code>{"{{name}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{summary}}"}</code>, 
-                    <code>{"{{visa}}"}</code>, <code>{"{{address}}"}</code>, <code>{"{{experience}}"}</code>, 
-                    <code>{"{{jobTitle}}"}</code>, <code>{"{{companyName}}"}</code>, <code>{"{{jobDescription}}"}</code>, 
-                    <code>{"{{detectedDomain}}"}</code>, <code>{"{{customInstructions}}"}</code>.
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap', gap: '6px' }}>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                      Define the core prompt instructions for CV tailoring. Supported placeholders: 
+                      <code>{"{{name}}"}</code>, <code>{"{{title}}"}</code>, <code>{"{{summary}}"}</code>, 
+                      <code>{"{{visa}}"}</code>, <code>{"{{address}}"}</code>, <code>{"{{experience}}"}</code>, 
+                      <code>{"{{jobTitle}}"}</code>, <code>{"{{companyName}}"}</code>, <code>{"{{jobDescription}}"}</code>, 
+                      <code>{"{{detectedDomain}}"}</code>, <code>{"{{customInstructions}}"}</code>.
+                    </p>
+                    <span style={{ fontSize: '0.72rem', fontWeight: '600', color: 'var(--accent-green)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
+                      ~{Math.ceil((settings.cvSystemPrompt || '').length / 4)} tokens ({(settings.cvSystemPrompt || '').length} chars)
+                    </span>
+                  </div>
                 </div>
 
                 <button type="submit" className="btn btn-primary">
@@ -3690,6 +3424,587 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* GROUP DISMISSAL ANALYSIS MODAL */}
+      {groupAnalysisResult && (() => {
+        const curChars = (settings.customInstructions || '').length;
+        const curTokens = Math.ceil(curChars / 4);
+        const propChars = editableGroupPrompt.length;
+        const propTokens = Math.ceil(propChars / 4);
+        const tokenDelta = propTokens - curTokens;
+        const tokenDeltaPct = curTokens > 0 ? Math.round((tokenDelta / curTokens) * 100) : (propTokens > 0 ? 100 : 0);
+        const baseSysPromptTokens = Math.ceil((settings.cvSystemPrompt || '').length / 4);
+        const totalEstTokens = baseSysPromptTokens + propTokens + 800;
+        const estCostFlash = ((totalEstTokens / 1000000) * 0.075).toFixed(6);
+        const estCostDeepSeek = ((totalEstTokens / 1000000) * 0.14).toFixed(6);
+
+        return (
+          <div 
+            className="slide-panel-backdrop" 
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 1100 }}
+            onClick={() => setGroupAnalysisResult(null)}
+          >
+            <div 
+              className="glass-card" 
+              style={{ 
+                width: '100%', 
+                maxWidth: '920px', 
+                maxHeight: '92vh', 
+                overflowY: 'auto', 
+                padding: '28px', 
+                borderRadius: '18px', 
+                boxShadow: '0 20px 50px rgba(0,0,0,0.3)',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                position: 'relative'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <h3 style={{ fontSize: '1.35rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                      Rejection Intelligence & Cohort Analysis
+                    </h3>
+                    <span className="badge badge-dismissed" style={{ fontSize: '0.7rem' }}>
+                      {groupAnalysisResult.analyzedCount || 'Cohort'} Roles Analyzed
+                    </span>
+                    {savedAnalysisTimestamp && (
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: '4px' }}>
+                        Saved {new Date(savedAnalysisTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Diagnose failure patterns, A/B test proposed prompt rules, and track token impact before updating settings.
+                  </p>
+                </div>
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '6px', borderRadius: '8px' }} 
+                  onClick={() => setGroupAnalysisResult(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Sub-Navigation Tabs inside Modal */}
+              <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '20px' }}>
+                <button 
+                  className={`btn ${activeAnalysisModalTab === 'insights' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.82rem', padding: '6px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setActiveAnalysisModalTab('insights')}
+                >
+                  <AlertCircle size={14} /> 1. Rejection Insights & Patterns
+                </button>
+                <button 
+                  className={`btn ${activeAnalysisModalTab === 'ab_test' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.82rem', padding: '6px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setActiveAnalysisModalTab('ab_test')}
+                >
+                  <Sparkles size={14} /> 2. A/B Simulation Test
+                </button>
+                <button 
+                  className={`btn ${activeAnalysisModalTab === 'prompt' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.82rem', padding: '6px 14px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setActiveAnalysisModalTab('prompt')}
+                >
+                  <FileText size={14} /> 3. Prompt Rules & Token Cost
+                </button>
+              </div>
+
+              {/* TAB 1: INSIGHTS & PATTERNS */}
+              {activeAnalysisModalTab === 'insights' && (
+                <div>
+                  {/* Executive Summary Callout */}
+                  <div style={{ background: 'rgba(255, 59, 48, 0.08)', border: '1px solid rgba(255, 59, 48, 0.25)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--accent-red)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <AlertCircle size={15} /> Executive Diagnosis
+                    </h4>
+                    <p style={{ fontSize: '0.88rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
+                      {groupAnalysisResult.executiveSummary}
+                    </p>
+                  </div>
+
+                  {/* Common Themes & Friction Points */}
+                  {groupAnalysisResult.commonThemes && groupAnalysisResult.commonThemes.length > 0 && (
+                    <div style={{ marginBottom: '24px' }}>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text-main)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Layers size={16} style={{ color: 'var(--accent-orange)' }} /> Recurring Failure Themes & Patterns
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
+                        {groupAnalysisResult.commonThemes.map((themeItem, idx) => (
+                          <div key={idx} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '14px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <strong style={{ fontSize: '0.84rem', color: 'var(--text-main)' }}>{themeItem.theme}</strong>
+                              {themeItem.severity && (
+                                <span style={{ 
+                                  fontSize: '0.65rem', 
+                                  fontWeight: '700', 
+                                  padding: '2px 6px', 
+                                  borderRadius: '4px',
+                                  background: themeItem.severity === 'High' ? 'rgba(255, 59, 48, 0.15)' : 'rgba(255, 149, 0, 0.15)',
+                                  color: themeItem.severity === 'High' ? 'var(--accent-red)' : 'var(--accent-orange)'
+                                }}>
+                                  {themeItem.severity}
+                                </span>
+                              )}
+                            </div>
+                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                              {themeItem.explanation}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Gaps vs Positive Signals */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                    {/* Profile / Tailoring Gaps */}
+                    <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px' }}>
+                      <h5 style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--accent-red)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
+                        Identified Gaps & Weaknesses
+                      </h5>
+                      <ul style={{ paddingLeft: '18px', fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: '1.5', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(groupAnalysisResult.profileGaps || []).map((gap, i) => (
+                          <li key={i}>{gap}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Positive Signals & Strengths */}
+                    <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px' }}>
+                      <h5 style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--accent-green)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
+                        Strengths & Working Signals
+                      </h5>
+                      <ul style={{ paddingLeft: '18px', fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: '1.5', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(groupAnalysisResult.positiveSignals || []).map((pos, i) => (
+                          <li key={i}>{pos}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Recommended Strategy Adjustments */}
+                  {groupAnalysisResult.recommendedStrategy && (
+                    <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', marginBottom: '24px' }}>
+                      <h5 style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--accent-blue)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
+                        Recommended Strategy Adjustments
+                      </h5>
+                      <ul style={{ paddingLeft: '18px', fontSize: '0.82rem', color: 'var(--text-main)', lineHeight: '1.5', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(groupAnalysisResult.recommendedStrategy || []).map((strat, i) => (
+                          <li key={i}>{strat}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ fontSize: '0.82rem', padding: '8px 16px' }}
+                      onClick={() => setGroupAnalysisResult(null)}
+                    >
+                      Close
+                    </button>
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ fontSize: '0.82rem', padding: '8px 18px', background: 'var(--accent-blue)', color: '#FFFFFF', fontWeight: '600' }}
+                      onClick={() => setActiveAnalysisModalTab('ab_test')}
+                    >
+                      Next: Run A/B Simulation →
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: A/B SIMULATION TEST */}
+              {activeAnalysisModalTab === 'ab_test' && (
+                <div>
+                  <div style={{ background: 'var(--bg-tertiary)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '20px' }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--text-main)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sparkles size={16} style={{ color: 'var(--accent-blue)' }} /> A/B Simulation: Test Current Rules vs. Proposed Fixes
+                    </h4>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+                      Test the proposed prompt changes on a real job to verify how the tailored Title, Summary, and Key Bullets transform before applying rules globally.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ flex: '1', minWidth: '240px' }}>
+                        <label className="form-label" style={{ fontSize: '0.7rem', marginBottom: '4px' }}>Choose Target Job:</label>
+                        <select 
+                          className="status-select"
+                          style={{ width: '100%', padding: '8px 30px 8px 12px', fontSize: '0.85rem' }}
+                          value={abSimulatingJobId}
+                          onChange={(e) => setAbSimulatingJobId(e.target.value)}
+                        >
+                          {jobs.map(j => (
+                            <option key={j.id} value={j.id}>
+                              {j.company} — {j.title} ({j.status})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ alignSelf: 'flex-end' }}>
+                        <button 
+                          className="btn btn-primary"
+                          style={{ fontSize: '0.82rem', padding: '8px 18px', background: 'var(--accent-blue)', color: '#FFFFFF', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}
+                          onClick={handleRunAbSimulation}
+                          disabled={abSimulationLoading}
+                        >
+                          <Sparkles size={14} />
+                          {abSimulationLoading ? <span className="loading-dots">Running Simulation</span> : 'Simulate A/B Test'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {abSimulationResult && (
+                    <div style={{ marginBottom: '20px' }}>
+                      {/* Differences Note */}
+                      <div style={{ background: 'rgba(0, 122, 255, 0.08)', border: '1px solid rgba(0, 122, 255, 0.25)', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
+                        <strong style={{ fontSize: '0.82rem', color: 'var(--accent-blue)' }}>A/B Comparison Takeaway:</strong>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-main)', marginTop: '4px', lineHeight: '1.4' }}>
+                          {abSimulationResult.simulation.keyDifferences}
+                        </p>
+                      </div>
+
+                      {/* Side by Side cards */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+                        {/* Version A */}
+                        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span className="badge" style={{ background: 'rgba(142, 142, 147, 0.15)', color: 'var(--text-muted)' }}>
+                              Version A (Current Rules)
+                            </span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              ~{abSimulationResult.tokenMetrics.currentTokens} tokens
+                            </span>
+                          </div>
+                          <div style={{ marginBottom: '10px' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '2px' }}>Generated Title:</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-main)' }}>{abSimulationResult.simulation.versionA.title}</div>
+                          </div>
+                          <div style={{ marginBottom: '10px' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '2px' }}>Generated Summary:</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: '1.4', background: 'var(--bg-secondary)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                              {abSimulationResult.simulation.versionA.summary}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '2px' }}>STAR Highlights:</div>
+                            <ul style={{ fontSize: '0.78rem', color: 'var(--text-main)', paddingLeft: '16px', lineHeight: '1.4' }}>
+                              {(abSimulationResult.simulation.versionA.leadHighlights || []).map((h, idx) => (
+                                <li key={idx}>{h}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {/* Version B */}
+                        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--accent-blue)', borderRadius: '12px', padding: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span className="badge badge-applied" style={{ background: 'rgba(0, 122, 255, 0.15)', color: 'var(--accent-blue)' }}>
+                              Version B (Proposed Rules)
+                            </span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--accent-blue)', fontWeight: '600' }}>
+                              ~{abSimulationResult.tokenMetrics.proposedTokens} tokens ({abSimulationResult.tokenMetrics.deltaTokens > 0 ? `+${abSimulationResult.tokenMetrics.deltaTokens}` : abSimulationResult.tokenMetrics.deltaTokens})
+                            </span>
+                          </div>
+                          <div style={{ marginBottom: '10px' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '2px' }}>Generated Title:</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--accent-blue)' }}>{abSimulationResult.simulation.versionB.title}</div>
+                          </div>
+                          <div style={{ marginBottom: '10px' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '2px' }}>Generated Summary:</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', lineHeight: '1.4', background: 'var(--bg-secondary)', padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(0, 122, 255, 0.3)' }}>
+                              {abSimulationResult.simulation.versionB.summary}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '2px' }}>STAR Highlights:</div>
+                            <ul style={{ fontSize: '0.78rem', color: 'var(--text-main)', paddingLeft: '16px', lineHeight: '1.4' }}>
+                              {(abSimulationResult.simulation.versionB.leadHighlights || []).map((h, idx) => (
+                                <li key={idx}>{h}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ fontSize: '0.82rem', padding: '8px 16px' }}
+                      onClick={() => setActiveAnalysisModalTab('insights')}
+                    >
+                      ← Back to Insights
+                    </button>
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ fontSize: '0.82rem', padding: '8px 18px', background: 'var(--accent-blue)', color: '#FFFFFF', fontWeight: '600' }}
+                      onClick={() => setActiveAnalysisModalTab('prompt')}
+                    >
+                      Next: Review Token Cost & Apply →
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: PROMPT & TOKEN COST */}
+              {activeAnalysisModalTab === 'prompt' && (
+                <div>
+                  {/* Token & Cost Metrics Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px', marginBottom: '18px' }}>
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Current Instructions</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--text-main)', marginTop: '2px' }}>
+                        ~{curTokens} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>tokens</span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{curChars} characters</div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Proposed Instructions</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--accent-blue)', marginTop: '2px' }}>
+                        ~{propTokens} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>tokens</span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{propChars} characters</div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Token Impact / Delta</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: '700', color: tokenDelta > 0 ? 'var(--accent-orange)' : 'var(--accent-green)', marginTop: '2px' }}>
+                        {tokenDelta > 0 ? `+${tokenDelta}` : tokenDelta} <span style={{ fontSize: '0.75rem', fontWeight: 'normal' }}>({tokenDeltaPct > 0 ? `+${tokenDeltaPct}%` : `${tokenDeltaPct}%`})</span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>per CV tailoring call</div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Estimated Cost / CV</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--accent-green)', marginTop: '2px' }}>
+                        ${estCostFlash}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Gemini Flash (~${estCostDeepSeek} DeepSeek)</div>
+                    </div>
+                  </div>
+
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: '700', color: 'var(--accent-indigo)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Sparkles size={16} /> Global Custom Instructions Editor
+                  </h4>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                    Review, trim, or refine the proposed rules below. The token metrics above will update live as you edit.
+                  </p>
+
+                  {groupAnalysisResult.actionablePromptChanges && (
+                    <div style={{ fontSize: '0.78rem', background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '12px', whiteSpace: 'pre-wrap', color: 'var(--text-main)' }}>
+                      <strong>Synthesized Rule Additions:</strong><br />
+                      {groupAnalysisResult.actionablePromptChanges}
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <label className="form-label" style={{ fontSize: '0.72rem', marginBottom: '6px' }}>
+                      Proposed Global Custom Instructions (Editable):
+                    </label>
+                    <textarea
+                      className="form-input"
+                      style={{ height: '150px', fontSize: '0.8rem', fontFamily: 'monospace', lineHeight: '1.4' }}
+                      value={editableGroupPrompt}
+                      onChange={(e) => setEditableGroupPrompt(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      💡 <em>Tip: You can re-open this analysis anytime for free via "View Saved Analysis".</em>
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      {groupPromptSaved && (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--accent-green)', fontWeight: '600' }}>
+                          ✓ Saved to Settings!
+                        </span>
+                      )}
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ fontSize: '0.82rem', padding: '8px 16px' }}
+                        onClick={() => setGroupAnalysisResult(null)}
+                      >
+                        Close & Keep Thinking
+                      </button>
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ fontSize: '0.82rem', padding: '8px 18px', background: 'var(--accent-blue)', color: '#FFFFFF', fontWeight: '600' }}
+                        onClick={handleApplyGroupPromptRevision}
+                      >
+                        Accept & Save to Global Settings
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* PROMPT & TOKEN INSPECTOR MODAL */}
+      {promptPreviewData && (
+        <div 
+          className="slide-panel-backdrop" 
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 1200 }}
+          onClick={() => setPromptPreviewData(null)}
+        >
+          <div 
+            className="glass-card" 
+            style={{ 
+              width: '100%', 
+              maxWidth: '960px', 
+              maxHeight: '92vh', 
+              overflowY: 'auto', 
+              padding: '28px', 
+              borderRadius: '18px', 
+              boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              position: 'relative'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <h3 style={{ fontSize: '1.3rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                    LLM Prompt & Token Inspector
+                  </h3>
+                  <span className="badge badge-applied" style={{ fontSize: '0.7rem' }}>
+                    Domain: {promptPreviewData.detectedDomain || 'General'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Verbatim prompt sent to Gemini / DeepSeek for <strong>{promptPreviewData.job.title}</strong> at <strong>{promptPreviewData.job.company}</strong>.
+                </p>
+              </div>
+              <button 
+                className="btn btn-secondary" 
+                style={{ padding: '6px', borderRadius: '8px' }} 
+                onClick={() => setPromptPreviewData(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Tab Switcher */}
+            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
+              {Object.entries(promptPreviewData.prompts).map(([key, pData]) => (
+                <button
+                  key={key}
+                  className={`btn ${activePromptPreviewKey === key ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.82rem', padding: '6px 14px', borderRadius: '8px' }}
+                  onClick={() => setActivePromptPreviewKey(key)}
+                >
+                  {pData.name} (~{pData.metrics.tokens} tokens)
+                </button>
+              ))}
+            </div>
+
+            {/* Selected Prompt Inspector Body */}
+            {(() => {
+              const currentPromptObj = promptPreviewData.prompts[activePromptPreviewKey] || promptPreviewData.prompts.cvTailoring;
+              const metrics = currentPromptObj.metrics;
+
+              return (
+                <div>
+                  {/* Stat Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', marginBottom: '16px' }}>
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Total Input Size</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--accent-blue)', marginTop: '2px' }}>
+                        ~{metrics.tokens} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>tokens</span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{metrics.chars.toLocaleString()} chars · {metrics.words.toLocaleString()} words</div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Est. Cost per Call</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--accent-green)', marginTop: '2px' }}>
+                        {metrics.estCostFlash}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Gemini Flash ({metrics.estCostDeepSeek} DeepSeek)</div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Profile & JD Tokens</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--text-main)', marginTop: '2px' }}>
+                        ~{promptPreviewData.components.candidateProfileTokens + promptPreviewData.components.jobDescriptionTokens} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>tokens</span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Profile: ~{promptPreviewData.components.candidateProfileTokens} | JD: ~{promptPreviewData.components.jobDescriptionTokens}</div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-tertiary)', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>Rules & Template Tokens</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: '700', color: 'var(--accent-orange)', marginTop: '2px' }}>
+                        ~{promptPreviewData.components.systemTemplateTokens + promptPreviewData.components.customInstructionsTokens} <span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>tokens</span>
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Rules: ~{promptPreviewData.components.customInstructionsTokens} | Template: ~{promptPreviewData.components.systemTemplateTokens}</div>
+                    </div>
+                  </div>
+
+                  {/* Verbatim Prompt Viewer */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                      Verbatim Prompt String:
+                    </label>
+                    <button 
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(currentPromptObj.prompt);
+                        setCopiedPromptToast(true);
+                        setTimeout(() => setCopiedPromptToast(false), 2500);
+                      }}
+                    >
+                      {copiedPromptToast ? '✓ Copied to Clipboard!' : 'Copy Full Prompt'}
+                    </button>
+                  </div>
+
+                  <pre style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '10px',
+                    padding: '16px',
+                    fontSize: '0.78rem',
+                    fontFamily: 'SF Mono, Menlo, Monaco, Consolas, Courier New, monospace',
+                    color: 'var(--text-main)',
+                    maxHeight: '440px',
+                    overflowY: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.5'
+                  }}>
+                    {currentPromptObj.prompt}
+                  </pre>
+                </div>
+              );
+            })()}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
+              <button 
+                className="btn btn-secondary" 
+                style={{ fontSize: '0.82rem', padding: '8px 18px' }}
+                onClick={() => setPromptPreviewData(null)}
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

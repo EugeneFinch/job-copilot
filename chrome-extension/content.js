@@ -458,10 +458,14 @@ function initCopilot() {
             <div class="ajf-panel-divider"></div>
 
             <div class="ajf-outreach-compact" id="ajf-block-outreach">
-              <div class="ajf-outreach-head">
-                <span id="ajf-outreach-role-context" class="ajf-outreach-role"></span>
+              <div class="ajf-outreach-head" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span id="ajf-outreach-role-context" class="ajf-outreach-role" style="font-weight: 700;">Hiring Manager Outreach</span>
+                <a id="ajf-btn-open-hm-link" href="#" target="_blank" style="display: none; font-size: 12px; color: #0071e3; text-decoration: none; font-weight: 600;">Open Recruiter Profile ↗</a>
               </div>
-              <textarea class="ajf-input ajf-input-compact" id="ajf-connect-message-preview" readonly rows="4" placeholder="Invite message (after save)"></textarea>
+              <textarea class="ajf-input ajf-input-compact" id="ajf-connect-message-preview" readonly rows="3" placeholder="Invite message (after save)"></textarea>
+              <div style="margin-top: 6px; display: flex; gap: 8px;">
+                <button type="button" class="ajf-btn ajf-btn-secondary ajf-btn-xs" id="ajf-btn-copy-connect-msg" style="flex: 1;">Copy Outreach Note</button>
+              </div>
             </div>
 
             <div class="ajf-outreach-compact ajf-recruiter-email-fallback" id="ajf-recruiter-outreach" style="display: none;">
@@ -554,6 +558,22 @@ function initCopilot() {
   // Event Listeners
   launcherElement.addEventListener('click', toggleSidebar);
   document.getElementById('ajf-close-sidebar').addEventListener('click', toggleSidebar);
+
+  // Global Keyboard Shortcuts (Option+S / Alt+S: toggle sidebar, Option+T / Alt+T: tailor, Escape: close)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebarElement && sidebarElement.classList.contains('ajf-open')) {
+      toggleSidebar();
+    } else if ((e.altKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      toggleSidebar();
+    } else if ((e.altKey || e.metaKey) && (e.key === 't' || e.key === 'T')) {
+      e.preventDefault();
+      if (!sidebarElement.classList.contains('ajf-open')) {
+        toggleSidebar();
+      }
+      handleTailorJob();
+    }
+  });
   document.getElementById('ajf-btn-save').addEventListener('click', handleSaveOrOpenPdf);
   document.getElementById('ajf-btn-save-later').addEventListener('click', handleSaveForLater);
   document.getElementById('ajf-btn-assess').addEventListener('click', handleAssessMatch);
@@ -570,6 +590,20 @@ function initCopilot() {
   const coverLetterBtn = document.getElementById('ajf-btn-cover-letter');
   if (coverLetterBtn) {
     coverLetterBtn.addEventListener('click', handleCoverLetterAction);
+  }
+
+  const copyConnectBtn = document.getElementById('ajf-btn-copy-connect-msg');
+  if (copyConnectBtn) {
+    copyConnectBtn.addEventListener('click', () => {
+      const textarea = document.getElementById('ajf-connect-message-preview');
+      const text = textarea ? textarea.value : '';
+      if (text) {
+        navigator.clipboard.writeText(text);
+        const orig = copyConnectBtn.innerText;
+        copyConnectBtn.innerText = 'Copied!';
+        setTimeout(() => { copyConnectBtn.innerText = orig; }, 2000);
+      }
+    });
   }
 
   const quickMsgBtn = document.getElementById('ajf-btn-quick-connect-msg');
@@ -786,11 +820,9 @@ function updateDynamicUI() {
     assessBtn.style.setProperty('display', hideForAutoSave ? 'none' : 'flex', 'important');
   }
   if (tailorBtn) {
-    // Always show tailor once job is in pipeline (needed for re-tailor / recovery)
     tailorBtn.style.setProperty('display', (inDb || !hideForAutoSave) ? 'flex' : 'none', 'important');
-    if (inDb) {
-      tailorBtn.innerText = hasTailored ? 'Re-tailor' : 'Tailor';
-    }
+    tailorBtn.innerText = hasTailored ? 'Redo' : 'Tailor';
+    tailorBtn.style.fontSize = '12px';
   }
 }
 
@@ -1009,7 +1041,8 @@ function updateActionButtons() {
   if (saveLaterBtn) {
     saveLaterBtn.style.display = !inDb ? 'block' : 'none';
   }
-  tailorBtn.disabled = !pipelineCheckDone || !inDb;
+  tailorBtn.disabled = !pipelineCheckDone;
+  tailorBtn.title = inDb ? 'Generate tailored CV & letter' : 'Save & Tailor CV now';
   autofillBtn.disabled = !pipelineCheckDone || (!inDb && !isLinkedInEasyApplyOpen());
   downloadBtn.style.display = tailored ? 'flex' : 'none';
   downloadBtn.innerText = 'PDF';
@@ -1441,7 +1474,7 @@ function runSpaAutoReparse() {
     const statusSuccess = document.getElementById('ajf-profile-crm-status');
     if (statusSuccess) statusSuccess.style.display = 'none';
 
-    spaTimer = setTimeout(attemptReparse, 800);
+    spaTimer = setTimeout(attemptReparse, 200);
     return;
   }
 
@@ -1469,7 +1502,7 @@ function runSpaAutoReparse() {
     statusBadge.className = 'ajf-badge ajf-badge-to-process';
   }
 
-  spaTimer = setTimeout(attemptReparse, 800);
+  spaTimer = setTimeout(attemptReparse, 200);
 }
 
 function attemptReparse() {
@@ -1643,24 +1676,16 @@ function buildQuickOutreachMessage({
   title = '',
   company = '',
   contactFirstName = '',
-  isRecruiter = false,
-  visa = ''
+  isRecruiter = false
 } = {}) {
   const first = (contactFirstName || '').trim().split(/\s+/)[0];
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
-  const recruiter = isRecruiterPosting(company, isRecruiter);
-  const workRights = formatOutreachWorkRightsLine(visa);
+  const atCompany = (company && !isRecruiter) ? ` at ${company}` : '';
 
-  let body;
-  if (recruiter) {
-    body = `Eugene here — just applied for the ${role} role that you posted. ${workRights}`;
-  } else {
-    const atCompany = company ? ` at ${company}` : '';
-    body = `Eugene here — just applied for the ${role} role${atCompany}. ${workRights}`;
-  }
+  const body = `Eugene here. Got full PR to Australia, living in Melbourne with 10+ years in Product. Just applied for the ${role} role${atCompany} — would love to connect and chat if you're open to it!`;
 
-  return `${greeting}\n\n${body}`.slice(0, 300);
+  return `${greeting}\n\n${body}`.slice(0, 290);
 }
 
 function getHiringManagerProfileUrl() {
@@ -1743,12 +1768,21 @@ function updateOutreachRoleContext(job = currentScrapedJob) {
     hmInput.placeholder = recruiter ? 'Recruiter LinkedIn /in/ profile' : 'LinkedIn /in/ profile';
   }
 
+  const hmUrl = getHiringManagerProfileUrl();
+  const openHmLink = document.getElementById('ajf-btn-open-hm-link');
+  if (openHmLink) {
+    if (hmUrl) {
+      openHmLink.href = hmUrl;
+      openHmLink.style.display = 'inline';
+    } else {
+      openHmLink.style.display = 'none';
+    }
+  }
+
   if (!title && !company) {
-    el.textContent = '';
-    el.style.display = 'none';
+    el.textContent = 'Hiring Manager Outreach';
     return;
   }
-  el.style.display = 'block';
   const roleLine = company ? `${title} · ${company}` : title;
   el.textContent = recruiter ? `Recruiter · ${roleLine}` : roleLine;
 }
@@ -3453,9 +3487,11 @@ function buildRecruiterEmailDraft(job = {}) {
   const role = (job.title || 'this role').trim();
   const company = (job.company || '').trim();
   const atLine = company ? ` for the ${role} role (${company})` : ` for the ${role} role`;
-  const subject = `${role}${company ? ` — ${company}` : ''} — Eugene Bochkov`;
+  const candidateName = (window.__AJF_SETTINGS__?.profile?.name || 'Candidate');
+  const candidateEmail = (window.__AJF_SETTINGS__?.profile?.email || '');
+  const subject = `${role}${company ? ` — ${company}` : ''} — ${candidateName}`;
   const workRights = formatOutreachWorkRightsLine();
-  const body = `Hi,\n\nI'm interested in the opportunity${atLine}. ${workRights} CV attached.\n\nEugene Bochkov\neu.bochkov@gmail.com`;
+  const body = `Hi,\n\nI'm interested in the opportunity${atLine}. ${workRights} CV attached.\n\n${candidateName}\n${candidateEmail}`;
   return { subject, body, mailto: `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` };
 }
 
@@ -3858,13 +3894,33 @@ function handleTailorJob() {
 
   resolvePipelineJob((job, err) => {
     if (!job) {
-      logToConsole(err === 'not_found' ? 'Save to pipeline first.' : `✗ ${err}`);
+      if (err === 'not_found' || !err) {
+        logToConsole('Saving job to pipeline first...');
+        updateScrapedJobFromInputs();
+        sendExtensionMessage({ action: 'addJob', job: currentScrapedJob }, (saveRes) => {
+          if (saveRes && saveRes.success && saveRes.data?.job) {
+            const savedJob = saveRes.data.job;
+            logToConsole(`✓ Saved job #${savedJob.id}. Starting tailoring...`);
+            executeTailoringForJob(savedJob, tailorBtn);
+          } else {
+            logToConsole(`✗ Auto-save failed: ${saveRes?.error || 'Unknown error'}`);
+            tailorBtn.disabled = false;
+            tailorBtn.innerText = 'Tailor';
+          }
+        });
+        return;
+      }
+      logToConsole(`✗ ${err}`);
       tailorBtn.disabled = false;
       tailorBtn.innerText = 'Tailor';
       return;
     }
 
-    logToConsole(`Tailoring job #${job.id} (${job.status})…`);
+    executeTailoringForJob(job, tailorBtn);
+  });
+}
+
+function executeTailoringForJob(job, tailorBtn) {
     logToConsole('Generating cover letter and tailored work history…');
 
     const jdLower = (job.description || '').toLowerCase();
@@ -3917,7 +3973,6 @@ function handleTailorJob() {
         logToConsole(`Failed to tailor job: ${response?.error || 'Unknown error'}`);
       }
     });
-  });
 }
 
 // ----------------------------------------------------
@@ -3926,7 +3981,7 @@ function handleTailorJob() {
 async function handleAutofill() {
   const autofillBtn = document.getElementById('ajf-btn-autofill');
   autofillBtn.disabled = true;
-  autofillBtn.innerText = '⚡ Filling Form...';
+  autofillBtn.innerText = 'Filling Form...';
 
   logToConsole('Starting autofill sequence...');
 
@@ -3935,7 +3990,7 @@ async function handleAutofill() {
     if (!settingsResponse || !settingsResponse.success) {
       logToConsole('Failed to read settings from local server.');
       autofillBtn.disabled = false;
-      autofillBtn.innerText = '⚡ Autofill Application';
+      autofillBtn.innerText = 'Autofill Application';
       return;
     }
 
@@ -4032,14 +4087,15 @@ async function handleAutofill() {
         } else if (combined.includes('country')) {
           val = "Australia";
         } else if (combined.includes('address') || combined.includes('street')) {
-          val = profile.address || "9 Revell Crescent, St Albans, VIC 3021";
+          val = profile.address || "";
         } else if (combined.includes('city') || combined.includes('suburb') || combined.includes('town')) {
-          val = "St Albans";
+          val = profile.address ? (profile.address.split(',')[1]?.trim() || profile.address) : "";
         } else if (combined.includes('state') || combined.includes('region') || combined.includes('province')) {
-          val = "Victoria";
+          val = "";
         } else if (combined.includes('zip') || combined.includes('postcode') || combined.includes('postal')) {
-          val = "3021";
+          val = "";
         } else if (combined.includes('location') && !combined.includes('job')) {
+          val = profile.address || "";
           val = "St Albans, VIC";
         } else if (/product management.*year|years.*product management/i.test(combined)) {
           val = '10';
@@ -4170,7 +4226,7 @@ async function handleAutofill() {
     logToConsole(`Autofill complete! Filled ${fieldsFilled} fields.`);
     showToast(`🚀 Copilot pre-filled ${fieldsFilled} fields!`);
     autofillBtn.disabled = false;
-    autofillBtn.innerText = '⚡ Autofill Application';
+    autofillBtn.innerText = 'Autofill Application';
   });
 }
 
@@ -5129,7 +5185,7 @@ function runIndeedJobDetailsAutoApply(queue) {
       return;
     }
 
-    hud.updateStatus('⚡ Scraped job details. Saving and opening application...');
+    hud.updateStatus('Scraped job details. Saving and opening application...');
 
     const scrapedJob = extractJobDetails();
     scrapedJob.url = canonicalJobUrl(scrapedJob.url);
@@ -5594,7 +5650,7 @@ async function runIndeedEasyApplyAutoApply(queue) {
       }
 
       // 4. Fill form fields
-      hud.updateStatus('⚡ Filling current form page...');
+      hud.updateStatus('Filling current form page...');
 
       sendExtensionMessage({ action: 'getSettings' }, async (settingsResponse) => {
         if (!settingsResponse || !settingsResponse.success) {
@@ -5806,15 +5862,15 @@ async function runIndeedEasyApplyAutoApply(queue) {
             } else if (combined.includes('country')) {
               val = "Australia";
             } else if (combined.includes('address') || combined.includes('street')) {
-              val = profile.address || "9 Revell Crescent, St Albans, VIC 3021";
+              val = profile.address || "";
             } else if (combined.includes('city') || combined.includes('suburb') || combined.includes('town')) {
-              val = "St Albans";
+              val = profile.address ? (profile.address.split(',')[1]?.trim() || profile.address) : "";
             } else if (combined.includes('state') || combined.includes('region') || combined.includes('province')) {
-              val = "Victoria";
+              val = "";
             } else if (combined.includes('zip') || combined.includes('postcode') || combined.includes('postal')) {
-              val = "3021";
+              val = "";
             } else if (combined.includes('location') && !combined.includes('job')) {
-              val = "St Albans, VIC";
+              val = profile.address || "";
             }
 
             if (val !== null && val !== '') {

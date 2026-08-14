@@ -1,0 +1,24 @@
+# Personal Data & Credentials
+data/
+scratch/
+logs/
+.env
+.env.*
+*.bak
+*.tmp
+
+# Personal Documents & PDFs
+*.pdf
+*.docx
+*.png
+!chrome-extension/*.png
+!public/*.png
+!dist/*.png
+
+# Dev & Config
+src/
+.git/
+.github/
+.gitignore
+.DS_Store
+vite.config.js

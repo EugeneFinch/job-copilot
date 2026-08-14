@@ -3,12 +3,12 @@ import path from 'path';
 
 // Manually constructed CV data based on the provided plain‑text CV
 const cvData = {
-  name: 'Eugene Bochkov',
+  name: 'Alex Taylor',
   title: 'Product Leader',
-  email: 'eu.bochkov@gmail.com',
-  phone: '+1 206 661 6232',
-  linkedin: 'linkedin.com/in/eugene-bochkov',
-  summary: `10+ years shipping B2B fintech products across APAC in payments and credit. Built and led product teams from scratch across startups and growth stage companies. Most recently co‑founded a yield infrastructure platform growing to $20M AUM. Relocating to Australia in 1 to 2 months with full work rights.`,
+  email: 'alex.taylor@example.com',
+  phone: '+61 400 000 000',
+  linkedin: 'linkedin.com/in/alex-taylor',
+  summary: `Executive Product Leader with 10+ years shipping B2B fintech and SaaS products across APAC in payments and credit.`,
   experience: [
     {
       role: 'Co-founder & Head of Product',
@@ -101,7 +101,7 @@ const cvData = {
 };
 
 (async () => {
-  const fileName = `Eugene_Bochkov_CV_${Date.now()}.pdf`;
+  const fileName = `Sample_CV_${Date.now()}.pdf`;
   const outputPath = path.resolve('data/generated', fileName);
   await generatePdf(cvData, outputPath);
   console.log('PDF generated at', outputPath);

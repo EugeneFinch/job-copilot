@@ -266,12 +266,17 @@
 
 .ajf-btn-xs {
   width: 100% !important;
-  padding: 10px 6px !important;
-  font-size: var(--ajf-font-sm) !important;
+  padding: 8px 4px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
   border-radius: 8px !important;
-  min-height: var(--ajf-control-height) !important;
-  height: auto !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  justify-content: center !important;
+  align-items: center !important;
 }
 
 .ajf-insights-stack {

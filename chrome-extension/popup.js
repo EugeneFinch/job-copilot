@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
       connStatus.className = 'status-badge connected';
       settingsCard.style.display = 'block';
 
-      profileName.innerText = `👤 Profile: ${settings.profile?.name || 'Not Configured'}`;
+      profileName.innerText = `Profile: ${settings.profile?.name || 'Not Configured'}`;
 
       // Render keywords
       keywordsList.innerHTML = '';

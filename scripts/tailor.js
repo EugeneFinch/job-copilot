@@ -31,26 +31,26 @@ Job Description:
 
 **TAILORING RULES:**
 
-**A. CV Length & Timeline (CRITICAL)**
-- Return **maximum 6 roles** in experience array, in **reverse chronological order** (most recent first — standard CV format)
-- **NEVER leave unexplained employment gaps > 4 months within the last 5 years.** If cutting a role would create a visible hole (e.g. skipping MC Research 2022–2024 between Spenmo and Foundation), keep that role with **exactly 1 short bullet** instead of omitting it
-- Omit only roles that are both low-relevance AND outside the recent 5-year window, OR that would not cause a timeline hole — **except always keep KPMG for Finance Systems, audit/compliance, tax/accounting, or enterprise finance JDs**
-- Top 2 roles: up to 3 bullets each. Next 2 roles: 2 bullets. Bridge/timeline filler roles: 1 bullet only
-- Each bullet: 1-2 lines, max 28 words. Lead with outcome or metric, not "Responsible for..."
-- NEVER add a "career gap" disclaimer or employment-break note on the CV — continuity is shown by including roles, not explaining omissions
+**A. CV Length & Timeline (EXACTLY 2 FULL EXECUTIVE PAGES)**
+- The CV MUST fill **EXACTLY 2 FULL EXECUTIVE PAGES** (the standard for 10+ years experience in Australia). Never produce a truncated 1-page resume.
+- Return **7 to 9 roles** in experience array, in **reverse chronological order** (most recent first).
+- Include core career history: Foundation, MC Research, Spenmo, Dirac AI, Empala, Vincere, Navigos/Answerbuddy, Paymentwall, KPMG Ukraine.
+- Top 3 roles: 3-4 high-impact STAR bullets each. Next 3 roles: 2-3 bullets each. Older roles (Paymentwall, KPMG): 2 bullets each.
+- Each bullet: 1-2 lines, max 28 words. Lead with outcome or metric, not "Responsible for...".
+- NEVER leave unexplained employment gaps > 4 months.
 
-**B. Core Skills line (optional — omit by default)**
-- Leave **coreSkills** as empty string "" for most roles (enterprise SaaS, delivery, HR tech, professional services)
-- Only set coreSkills for Fintech/Payments or AI/ML JDs when 2+ critical keywords are missing from experience bullets
-- When used: ONE line, max 15 words, comma-separated (e.g. "Payments infrastructure, BaaS, Mixpanel, compliance workflows")
-- NEVER repeat the old static 3-category skills block
+**B. Core Skills Section**
+- Populate **coreSkills** with a clean 1-line comma-separated list of 6-8 domain capabilities tailored to the JD (e.g. "Product Strategy, B2B Credit Rails, Banking-as-a-Service (BaaS), Mixpanel, API Integration, Regulatory Compliance").
 
-**C. Summary (50-70 words, exactly 2-3 sentences)**
-- Sentence 1: Domain-specific positioning matched to {{detectedDomain}} and this JD's language
-- Sentence 2-3: Two concrete proof points with real metrics from candidate history ($20M TVL, 10k MAU, 90+ countries, 50% reduction, etc.)
-- Do NOT mention "{{companyName}}" or "{{jobTitle}}" in the summary
-- BANNED generic openers (never use these): "Product leader with 10+ years", "Proven track record", "Passionate", "Dynamic", "Results-driven", "Seasoned professional"
-- Each tailored summary MUST read differently — mirror vocabulary from THIS job description
+**C. Summary (STRICTLY EXACTLY 2 SENTENCES, MAX 45 WORDS TOTAL — NO BLOAT)**
+- **Sentence 1 (Positioning)**: Executive title matched to {{jobTitle}} + 2 core domain capabilities aligned with {{detectedDomain}} and this specific JD.
+  * *Example for B2B SaaS*: "Senior Product Manager specializing in multi-tenant B2B SaaS platforms, API integrations, and product-led growth."
+  * *Example for Fintech/Payments*: "Senior Product Manager specializing in B2B credit infrastructure, global payment rails, and regulatory compliance."
+- **Sentence 2 (Hard Proof Metrics)**: Exactly 2 concrete metrics from candidate history ($20M platform volume, 10k MAU, 90+ countries, or 50% efficiency gain).
+  * *Example*: "Track record scaling platform volume to $20M across 90+ countries and reducing merchant onboarding time by 50%."
+- DO NOT list 6 different tech buzzwords or stack unrelated terms. Keep it laser-focused and clean.
+- NEVER include work rights, visa status, city, suburb, or immediate availability in the CV summary.
+- BANNED openers (never use these): "Product leader with 10+ years", "Proven track record", "Passionate", "Dynamic", "Results-driven", "Seasoned professional", "Built and scaled shipping".
 
 **D. Experience Bullets**
 - Use STAR logic: situation/action → measurable result
@@ -79,6 +79,14 @@ Job Description:
 - gapBridgeNote: 2-3 sentences for COVER LETTER use only — honest bridge from real achievements to the gap; acknowledge the gap briefly, then pivot to transferable proof
 - transferableHighlights: up to 3 short notes mapping real candidate wins to the gap area (internal reference for cover letter, NOT printed on CV)
 
+**H. HUMAN EXECUTIVE VOICE (STRICTLY BAN AI FLUFF & TELLTALE WORDS)**
+- **Write like a real human tech executive**, NOT an AI generator.
+- **STRICTLY BANNED AI WORDS (NEVER USE THESE IN CV OR COVER LETTER):**
+  spearheaded, orchestrated, championed, leveraged, harnessed, synergized, fostered, catalyzed, pioneered, empowered, transformative, paradigm, seamless, cutting-edge, state-of-the-art, robust, delve, testament, beacon, tapestry, unwavering, spearheading, beacon of, holistic.
+- **USE DIRECT NATURAL HUMAN VERBS ONLY:**
+  Built, Launched, Scaled, Designed, Shipped, Hired, Ran, Closed, Grew, Cut, Instrumented, Owned, Structured, Delivered.
+- **Cover Letter Voice:** Write in clear, crisp, conversational Australian tech English. Sound like a senior product leader talking straight to another founder or VP of Product. Avoid dramatic fluff, AI throat-clearing, or corporate grandstanding.
+
 **Output Format** — return ONLY valid JSON:
 {
   "title": "String",
@@ -102,11 +110,11 @@ Job Description:
   "timelineNotes": ["String — internal note on roles kept/dropped for timeline continuity"]
 }`;
 
-export const GEMINI_MODEL = 'gemini-2.5-pro';
+export const GEMINI_MODEL = 'gemini-2.5-flash';
 export const DEEPSEEK_MODEL = 'deepseek-chat';
 
-const MAX_CV_ROLES = 6;
-const MAX_BULLETS_BY_RANK = [3, 3, 2, 2, 1, 1];
+const MAX_CV_ROLES = 10;
+const MAX_BULLETS_BY_RANK = [4, 4, 3, 3, 2, 2, 2, 2, 2, 2];
 const BANNED_SUMMARY_OPENERS = [
   /^product leader with 10\+ years/i,
   /^proven track record/i,
@@ -223,7 +231,7 @@ function sanitizeCoverLetterOpening(text) {
   return paras.slice(1).join('\n\n');
 }
 
-function detectDomain(jobDescription = '', jobTitle = '') {
+export function detectDomain(jobDescription = '', jobTitle = '') {
   const jdLower = `${jobDescription} ${jobTitle}`.toLowerCase();
   if (/general ledger|\bgl\b|budgeting|forecasting|reconciliation system|oracle|anaplan|tm1|erp|finance system|finance platform|fp&a|bas\b|gst reporting|accounting system/.test(jdLower)) {
     return 'Finance Systems';
@@ -238,6 +246,28 @@ function detectDomain(jobDescription = '', jobTitle = '') {
     return 'AI/ML';
   }
   return 'B2B SaaS';
+}
+
+function sanitizeCryptoJargon(text = '') {
+  return text;
+}
+
+export function compactExperienceText(experience = []) {
+  return (experience || []).map((exp) => {
+    const bullets = (exp.bullets || []).map((b) => `  - ${b}`).join('\n');
+    return `${exp.company} — ${exp.role} (${exp.period || ''}, ${exp.location || ''})\n${bullets}`;
+  }).join('\n\n');
+}
+
+export function compactJobDescription(jd = '', maxChars = 3500) {
+  if (!jd) return '';
+  let cleaned = String(jd).trim();
+  cleaned = cleaned.replace(/equal opportunity employer[\s\S]*/i, '');
+  cleaned = cleaned.replace(/we are an equal opportunity employer[\s\S]*/i, '');
+  if (cleaned.length > maxChars) {
+    return cleaned.slice(0, maxChars) + '\n...[Description truncated for concise processing]';
+  }
+  return cleaned;
 }
 
 function trimBullets(experience = []) {
@@ -384,45 +414,28 @@ export function finalizeTailoredExperience(tailoredExp = [], fullExp = []) {
   };
 }
 
-function polishSummary(summary = '') {
-  let text = summary.trim();
+function polishSummary(summary = '', domain = '') {
+  let text = String(summary || '').trim();
+  // Strip trailing work rights/immediate availability disclaimers from CV summary
+  text = text.replace(/;?\s*(?:full work rights|permanent resident|australia pr|available for immediate start).*/gi, '.');
+  
+  // Strictly enforce max 2 sentences
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (sentences.length > 2) {
+    text = sentences.slice(0, 2).join(' ');
+  }
+
   for (const pattern of BANNED_SUMMARY_OPENERS) {
     if (pattern.test(text)) {
-      text = text.replace(pattern, 'Built and scaled');
+      text = text.replace(pattern, 'Senior Product Manager');
     }
   }
+  text = sanitizeCryptoJargon(text, domain);
   return sanitizeDashes(text);
 }
 
 function sanitizeDashes(text) {
-  if (!text) return text;
-  return text
-    // Replace common hyphenated terms with non-hyphenated equivalents
-    .replace(/co-founder/gi, 'cofounder')
-    .replace(/cross-functional/gi, 'cross functional')
-    .replace(/end-to-end/gi, 'end to end')
-    .replace(/0-1/g, '0 to 1')
-    .replace(/0→1/g, '0 to 1')
-    .replace(/1-2/g, '1 to 2')
-    .replace(/API-driven/gi, 'API driven')
-    .replace(/API-first/gi, 'API first')
-    .replace(/consumer-facing/gi, 'consumer facing')
-    .replace(/merchant-facing/gi, 'merchant facing')
-    .replace(/client-facing/gi, 'client facing')
-    .replace(/real-time/gi, 'real time')
-    .replace(/high-growth/gi, 'high growth')
-    .replace(/cross-chain/gi, 'cross chain')
-    .replace(/top-tier/gi, 'top tier')
-    .replace(/multi-client/gi, 'multi client')
-    .replace(/time-to-market/gi, 'time to market')
-    .replace(/time-to-live/gi, 'time to live')
-    .replace(/self-starter/gi, 'self starter')
-    .replace(/data-driven/gi, 'data driven')
-    .replace(/state-of-the-art/gi, 'state of the art')
-    .replace(/AI-powered/gi, 'AI powered')
-    // Replace spaces around any en-dash, em-dash, or hyphen used as divider
-    .replace(/\s*[–—-]\s*/g, ' ')
-    .replace(/([a-zA-Z0-9])[-–—]([a-zA-Z0-9])/g, '$1 $2');
+  return text;
 }
 
 function cleanJsonText(text) {
@@ -461,6 +474,120 @@ async function fetchWithRetry(url, options, maxRetries = 3, initialDelay = 1000)
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
+}
+
+export function buildTailorPrompt(baseProfile = {}, jobDescription = '', jobTitle = '', companyName = '', customInstructions = '', promptTemplate = DEFAULT_SYSTEM_PROMPT, isRecruiter = false) {
+  let finalInstructions = customInstructions || '';
+  if (isRecruiter) {
+    const recruiterInstructions = `**SPECIAL CONTEXT: RECRUITER POSTING**
+This job is listed by a recruitment agency (${companyName || 'the recruiter'}), not the actual hiring company. The actual hiring company's identity is currently unknown.
+- Therefore, in the Cover Letter (specifically Paragraph 1 'Why Them') and the 'Why Interested' statement:
+  * Do NOT mention that you want to work for/with the recruitment agency (e.g. '${companyName || 'the recruiter'}') or address them as the employer.
+  * Do NOT refer to joining the recruitment agency's business, mission, or teams.
+  * Instead, refer to the actual hiring company generically as 'your client' or describe their domain based on clues from the job description (e.g. 'your client, a leading fintech startup' or 'the client company').
+  * Focus your interest on the role's challenges, requirements, and the opportunity to add value to the client's product/platform.`;
+    finalInstructions = finalInstructions ? `${finalInstructions}\n\n${recruiterInstructions}` : recruiterInstructions;
+  }
+
+  const detectedDomain = detectDomain(jobDescription, jobTitle);
+  const formattedExp = compactExperienceText(baseProfile.experience || []);
+  const formattedJd = compactJobDescription(jobDescription || '', 3500);
+
+  const prompt = (promptTemplate || DEFAULT_SYSTEM_PROMPT)
+    .replaceAll('{{name}}', baseProfile.name || '')
+    .replaceAll('{{title}}', baseProfile.title || '')
+    .replaceAll('{{summary}}', baseProfile.summary || '')
+    .replaceAll('{{visa}}', baseProfile.visa || '')
+    .replaceAll('{{address}}', baseProfile.address || '')
+    .replaceAll('{{experience}}', formattedExp)
+    .replaceAll('{{jobTitle}}', jobTitle || '')
+    .replaceAll('{{companyName}}', companyName || '')
+    .replaceAll('{{jobDescription}}', formattedJd)
+    .replaceAll('{{detectedDomain}}', detectedDomain)
+    .replaceAll('{{customInstructions}}', finalInstructions ? `**User Custom Instructions (STRICTLY FOLLOW THESE RULES):**\n${finalInstructions}` : '');
+
+  return {
+    prompt,
+    detectedDomain,
+    finalInstructions,
+    formattedExp,
+    formattedJd
+  };
+}
+
+export function buildCoverLetterPrompt(baseProfile = {}, jobDescription = '', jobTitle = '', companyName = '', customInstructions = '', tailoredCv = null, gapContext = {}, isRecruiter = false) {
+  let finalInstructions = customInstructions || '';
+  if (isRecruiter) {
+    const recruiterInstructions = `**SPECIAL CONTEXT: RECRUITER POSTING**
+- Do NOT mention that you want to work for/with the recruitment agency (${companyName || 'the recruiter'}).
+- Do NOT refer to joining the recruitment agency's business or team.
+- Refer to the hiring company generically as 'your client' or 'the client company'.`;
+    finalInstructions = finalInstructions ? `${finalInstructions}\n\n${recruiterInstructions}` : recruiterInstructions;
+  }
+
+  const experienceGaps = Array.isArray(gapContext.experienceGaps) ? gapContext.experienceGaps : [];
+  const gapBridgeNote = gapContext.gapBridgeNote || '';
+  const transferableHighlights = Array.isArray(gapContext.transferableHighlights) ? gapContext.transferableHighlights : [];
+  const hasGaps = experienceGaps.length > 0 || gapBridgeNote;
+
+  const gapSection = hasGaps ? `
+**Internal gap notes (for your reasoning only — NEVER mention these gaps, lacks, or missing experience in the letter):**
+${experienceGaps.map((g) => `- ${g}`).join('\n') || '- See bridge note'}
+**Bridge strategy (paragraph 2 only — show transferable proof, do NOT name what is missing):**
+${gapBridgeNote || 'Map closest real wins from the CV to the JD without disclaimers.'}
+${transferableHighlights.length ? `**Transferable proof points:**\n${transferableHighlights.map((h) => `- ${h}`).join('\n')}` : ''}
+` : '';
+
+  const cv = tailoredCv || baseProfile;
+  const formattedExperience = (cv.experience || []).map(exp => {
+    const bullets = (exp.bullets || []).map(b => `  - ${b}`).join('\n');
+    return `${exp.company} — ${exp.role} (${exp.period || ''}, ${exp.location || ''})\n${bullets}`;
+  }).join('\n\n');
+
+  const prompt = `Write the body of a cover letter for an Australian job application. No greeting ("Dear…") and no sign-off ("Best, Eugene") — just 3 short paragraphs.
+
+**Voice:** Write like a senior product leader sending a direct note to a hiring manager — clear, specific, calm confidence. Not HR-speak, not salesy, not AI-polished. Vary sentence length. Use plain words.
+
+**Candidate:** ${baseProfile.name || ''} · ${cv.title || ''}
+**Summary:** ${cv.summary || ''}
+**Work rights:** ${baseProfile.visa || 'Australia PR'}
+
+**Tailored experience (source of truth — do not invent):**
+${formattedExperience || 'No experience set'}
+
+**Role:** ${jobTitle || ''} · ${companyName || ''}
+**Job description:**
+${compactJobDescription(jobDescription || '', 2500)}
+${gapSection}
+
+**Structure (~150–190 words total):**
+1. **Why you (OPENING PARAGRAPH — CRITICAL):** Start with "I" — e.g. "I have spent…", "I want to bring…". Lead with YOUR relevant experience mapped to THEIR need. For finance systems roles, open with KPMG finance foundation → payments/lending product arc before platform proof. ${hasGaps ? 'Bridge domain gaps via transferable proof only — never name what you lack.' : 'Lead with the strongest tailored bullets and metrics.'}
+2. **Proof:** Two concrete outcomes with numbers from the CV, tied to specific JD requirements.
+3. **Close:** One short, low-key line inviting a quick call. Do NOT mention city, suburb, Melbourne, Sydney, location, visa, PR, work rights, or availability unless the JD explicitly asks about sponsorship. No bragging, no formulaic sign-off.
+
+**NEVER open paragraph 1 with:**
+- Company or product name ("Veracross's Business Suite…", "Nearmap's platform…")
+- "sits at the intersection of"
+- "I am drawn to" / "I'm drawn to"
+- Describing what the company does before stating your fit
+- "I'm excited to apply" / "I am writing to express"
+
+**Banned phrases:** passionate, thrilled, excited to express, delighted, proven track record, leverage, spearhead, synergy, dynamic, results-driven, hit the ground running, align with your vision, unique opportunity, I believe I would be a great fit, sits at the intersection, even if I haven't, although I haven't, I don't have direct experience, I lack experience, happy to walk through how my experience translates, I'm based in Melbourne, I live in Melbourne, hold Australian permanent residency, hold Australia Permanent Resident, full work rights, available for an immediate start
+
+**NEVER write disclaimers or hedges** — no "even if", "although", "despite not having", "I haven't worked in", "I don't have experience with". Sell transferable fit confidently; never apologize or flag missing domain experience.
+
+**Custom instructions:**
+${finalInstructions || 'None'}
+
+Return plain text only. No markdown, no bullet points, no subject line.
+`;
+
+  return {
+    prompt,
+    finalInstructions,
+    formattedExperience,
+    gapSection
+  };
 }
 
 export async function tailorCvAndLetter(apiKeys, baseProfile, jobDescription, jobTitle, companyName, customInstructions, systemPromptTemplate, isRecruiter = false) {
@@ -520,16 +647,19 @@ This job is listed by a recruitment agency (${companyName || 'the recruiter'}), 
   }
   console.log(`------------------------------------\n`);
 
+  const formattedExp = compactExperienceText(baseProfile.experience || []);
+  const formattedJd = compactJobDescription(jobDescription || '', 3500);
+
   const prompt = promptTemplate
     .replaceAll('{{name}}', baseProfile.name || '')
     .replaceAll('{{title}}', baseProfile.title || '')
     .replaceAll('{{summary}}', baseProfile.summary || '')
     .replaceAll('{{visa}}', baseProfile.visa || '')
     .replaceAll('{{address}}', baseProfile.address || '')
-    .replaceAll('{{experience}}', JSON.stringify(baseProfile.experience || [], null, 2))
+    .replaceAll('{{experience}}', formattedExp)
     .replaceAll('{{jobTitle}}', jobTitle || '')
     .replaceAll('{{companyName}}', companyName || '')
-    .replaceAll('{{jobDescription}}', jobDescription || '')
+    .replaceAll('{{jobDescription}}', formattedJd)
     .replaceAll('{{detectedDomain}}', detectedDomain)
     .replaceAll('{{customInstructions}}', finalInstructions ? `**User Custom Instructions (STRICTLY FOLLOW THESE RULES):**\n${finalInstructions}` : '');
 
@@ -633,7 +763,7 @@ This job is listed by a recruitment agency (${companyName || 'the recruiter'}), 
     const cleanData = JSON.parse(cleanJsonText(rawText));
 
     if (cleanData.summary) {
-      cleanData.summary = polishSummary(cleanData.summary);
+      cleanData.summary = polishSummary(cleanData.summary, detectedDomain);
     }
     if (cleanData.tailoringExplanation) {
       cleanData.tailoringExplanation = sanitizeDashes(cleanData.tailoringExplanation);
@@ -642,7 +772,7 @@ This job is listed by a recruitment agency (${companyName || 'the recruiter'}), 
       let experience = trimBullets(
         cleanData.experience.map((exp) => ({
           ...exp,
-          bullets: (exp.bullets || []).map((bullet) => sanitizeDashes(bullet))
+          bullets: (exp.bullets || [])
         }))
       );
       const continuity = finalizeTailoredExperience(experience, baseProfile.experience || []);
@@ -753,7 +883,7 @@ ${formattedExperience || 'No experience set'}
 
 **Role:** ${jobTitle || ''} · ${companyName || ''}
 **Job description:**
-${jobDescription || ''}
+${compactJobDescription(jobDescription || '', 2500)}
 ${gapSection}
 
 **Structure (~150–190 words total):**

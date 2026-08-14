@@ -7,11 +7,23 @@ let applyQueue = {
   tabId: null
 };
 
-// Load queue state on startup
+// Load queue state on startup (from local storage or server backup)
 chrome.storage.local.get(['indeedApplyQueue'], (result) => {
-  if (result && result.indeedApplyQueue) {
+  if (result && result.indeedApplyQueue && Array.isArray(result.indeedApplyQueue.jobList) && result.indeedApplyQueue.jobList.length > 0) {
     applyQueue = result.indeedApplyQueue;
     console.log('[Background] Restored queue state from storage:', applyQueue);
+  } else {
+    // Attempt recovery from local server state backup
+    fetch(`${API_BASE}/api/extension/state`)
+      .then(r => r.json())
+      .then(res => {
+        if (res && res.success && res.state && res.state.indeedApplyQueue) {
+          applyQueue = res.state.indeedApplyQueue;
+          chrome.storage.local.set({ indeedApplyQueue: applyQueue });
+          console.log('[Background] Restored queue state from server backup:', applyQueue);
+        }
+      })
+      .catch(err => console.warn('[Background] Could not fetch server backup state:', err.message));
   }
 });
 
@@ -21,6 +33,13 @@ function saveQueueState() {
       console.error('[Background] Failed to save queue state:', chrome.runtime.lastError.message);
     }
   });
+
+  // Sync state to server
+  fetch(`${API_BASE}/api/extension/state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ indeedApplyQueue: applyQueue })
+  }).catch(() => {});
 }
 
 // Listen to tab removal to stop/pause queue if the user manually closes the active auto-apply tab

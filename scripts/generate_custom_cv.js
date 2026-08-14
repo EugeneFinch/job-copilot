@@ -2,13 +2,13 @@ import { generatePdf } from './pdf_generator.js';
 import path from 'path';
 
 const cvData = {
-  name: "Eugene Bochkov",
+  name: "Alex Taylor",
   title: "Product Leader",
-  email: "eu.bochkov@gmail.com",
-  linkedin: "https://linkedin.com/in/eugene-bochkov",
-  phone: "+1 206 661 6232",
-  address: "9 Revell Crescent, St Albans, VIC 3021",
-  summary: "10+ years shipping B2B fintech products across APAC in payments and credit. Built and led product teams from scratch across startups and growth stage companies. Most recently co-founded a yield infrastructure platform growing to $20M AUM. Based in Melbourne, Victoria with full work rights; currently traveling but available for immediate hybrid/remote start.",
+  email: "alex.taylor@example.com",
+  linkedin: "https://linkedin.com/in/alex-taylor",
+  phone: "+61 400 000 000",
+  address: "Melbourne, VIC Australia",
+  summary: "Executive Product Leader with 10+ years shipping B2B SaaS and fintech platforms across APAC.",
   experience: [
     {
       role: "Co-founder & Head of Product",
