@@ -38,8 +38,9 @@ if (result.timelineNotes.length) {
   console.log('Notes:', result.timelineNotes.join('\n  '));
 }
 
+const candSlug = (job.tailoredCv?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
 const cleanCompany = (job.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+const fileName = `${candSlug}_CV_${cleanCompany}.pdf`;
 const outputPath = path.join(root, 'data/generated', fileName);
 await generatePdf(job.tailoredCv, outputPath);
 job.pdfPath = `/data/generated/${fileName}`;

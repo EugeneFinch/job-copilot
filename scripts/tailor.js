@@ -18,7 +18,7 @@ Job Description:
 **Detected Domain:** {{detectedDomain}}
 
 **Market Context:**
-- Candidate is Australia PR with full work rights; address on CV is St Albans, VIC — do NOT mention city, suburb, relocation, visa, or availability in summary or bullets unless the JD explicitly asks about sponsorship
+- Candidate has full work rights; address is on CV — do NOT mention city, suburb, relocation, visa, or availability in summary or bullets unless the JD explicitly asks about sponsorship
 - Do NOT position as a Singapore-based or "APEC alternative" candidate
 - Write for Australian hiring managers at {{companyName}} or similar
 
@@ -544,7 +544,7 @@ ${transferableHighlights.length ? `**Transferable proof points:**\n${transferabl
     return `${exp.company} — ${exp.role} (${exp.period || ''}, ${exp.location || ''})\n${bullets}`;
   }).join('\n\n');
 
-  const prompt = `Write the body of a cover letter for an Australian job application. No greeting ("Dear…") and no sign-off ("Best, Eugene") — just 3 short paragraphs.
+  const prompt = `Write the body of a cover letter for an Australian job application. No greeting ("Dear…") and no formulaic sign-off ("Best, [Name]") — just 3 short paragraphs.
 
 **Voice:** Write like a senior product leader sending a direct note to a hiring manager — clear, specific, calm confidence. Not HR-speak, not salesy, not AI-polished. Vary sentence length. Use plain words.
 
@@ -870,7 +870,7 @@ ${gapBridgeNote || 'Map closest real wins from the CV to the JD without disclaim
 ${transferableHighlights.length ? `**Transferable proof points:**\n${transferableHighlights.map((h) => `- ${h}`).join('\n')}` : ''}
 ` : '';
 
-  const prompt = `Write the body of a cover letter for an Australian job application. No greeting ("Dear…") and no sign-off ("Best, Eugene") — just 3 short paragraphs.
+  const prompt = `Write the body of a cover letter for an Australian job application. No greeting ("Dear…") and no formulaic sign-off ("Best, [Name]") — just 3 short paragraphs.
 
 **Voice:** Write like a senior product leader sending a direct note to a hiring manager — clear, specific, calm confidence. Not HR-speak, not salesy, not AI-polished. Vary sentence length. Use plain words.
 
@@ -1002,11 +1002,8 @@ function isRecruiterPosting(company = '', isRecruiter = false) {
 
 export function formatOutreachWorkRightsLine(visa = '') {
   const v = String(visa || '').trim();
-  if (/pr|permanent resident/i.test(v)) {
-    return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
-  }
   if (v) return `${v} — looking forward to connect.`;
-  return 'Australian PR (Global Talent visa), relocating to AU — looking forward to connect.';
+  return 'Full work rights — looking forward to connect.';
 }
 
 export function buildQuickOutreachMessage({
@@ -1014,20 +1011,22 @@ export function buildQuickOutreachMessage({
   company = '',
   contactFirstName = '',
   isRecruiter = false,
-  visa = ''
+  visa = '',
+  candidateName = ''
 } = {}) {
   const first = (contactFirstName || '').trim().split(/\s+/)[0];
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
   const recruiter = isRecruiterPosting(company, isRecruiter);
   const workRights = formatOutreachWorkRightsLine(visa);
+  const sender = candidateName ? candidateName.trim().split(/\s+/)[0] : 'Candidate';
 
   let body;
   if (recruiter) {
-    body = `Eugene here — just applied for the ${role} role that you posted. ${workRights}`;
+    body = `${sender} here — just applied for the ${role} role that you posted. ${workRights}`;
   } else {
     const atCompany = company ? ` at ${company}` : '';
-    body = `Eugene here — just applied for the ${role} role${atCompany}. ${workRights}`;
+    body = `${sender} here — just applied for the ${role} role${atCompany}. ${workRights}`;
   }
 
   return `${greeting}\n\n${body}`.slice(0, 300);

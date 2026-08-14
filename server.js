@@ -1162,8 +1162,9 @@ app.post('/api/jobs/import', async (req, res) => {
           }
 
           log(`[Auto-PDF] Automatically generating CV PDF...`);
+          const candSlug = (settings?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
           const cleanCompany = (jobToSave.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-          const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+          const fileName = `${candSlug}_CV_${cleanCompany}.pdf`;
           const outputPath = path.join(getDataDir(), 'generated', fileName);
           await generatePdf(jobToSave.tailoredCv, outputPath);
           jobToSave.pdfPath = `/data/generated/${fileName}`;
@@ -1335,8 +1336,9 @@ app.post('/api/jobs/search', async (req, res) => {
           }
 
           log(`[Auto-PDF] Automatically generating CV PDF...`);
+          const candSlug = (settings?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
           const cleanCompany = (jobToSave.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-          const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+          const fileName = `${candSlug}_CV_${cleanCompany}.pdf`;
           const outputPath = path.join(getDataDir(), 'generated', fileName);
           await generatePdf(jobToSave.tailoredCv, outputPath);
           jobToSave.pdfPath = `/data/generated/${fileName}`;
@@ -1581,10 +1583,10 @@ ${cvExp}
 
     const prompt = `
 You are an expert Executive Tech Recruiter, Head of Talent, and ATS / Career Strategist.
-We are analyzing a cohort of ${targetJobs.length} job applications for candidate Eugene Bochkov that resulted in dismissals/rejections or require cohort failure analysis.
+We are analyzing a cohort of ${targetJobs.length} job applications for candidate ${baseProfile.name || 'Candidate'} that resulted in dismissals/rejections or require cohort failure analysis.
 
 **Candidate Base Profile:**
-Name: ${baseProfile.name || 'Eugene Bochkov'}
+Name: ${baseProfile.name || 'Candidate'}
 Target Title: ${baseProfile.title || 'Senior Product Manager / Head of Product'}
 Experience Overview:
 ${formattedProfileExperience}
@@ -1807,7 +1809,7 @@ app.post('/api/jobs/simulate-prompt-ab', async (req, res) => {
 
     const prompt = `
 You are an expert ATS & CV Optimization Simulator.
-We are running an A/B Test simulation comparing two different sets of Custom Tailoring Instructions for candidate Eugene Bochkov on this target job.
+We are running an A/B Test simulation comparing two different sets of Custom Tailoring Instructions for candidate ${profile?.name || 'Candidate'} on this target job.
 
 **Target Job:**
 Title: ${job.title}
@@ -2194,7 +2196,7 @@ app.post('/api/jobs/:id/suggest-prompt-revision', async (req, res) => {
 
     const prompt = `
 You are an expert AI prompt engineer and recruiter.
-We are tailoring a CV for a candidate named Eugene Bochkov.
+We are tailoring a CV for a candidate named ${job.tailoredCv?.name || 'Candidate'}.
 The candidate was recently rejected/dismissed for this job:
 - Company: ${job.company}
 - Title: ${job.title}
@@ -2793,11 +2795,12 @@ Bullets:
 ${(exp.bullets || []).map(b => `- ${b}`).join('\n')}`;
     }).join('\n\n');
 
-    const prompt = `You are helping a candidate named Eugene Bochkov apply for a job.
+    const candidateName = cv.name || 'Candidate';
+    const prompt = `You are helping a candidate named ${candidateName} apply for a job.
 We need to answer a custom application question honestly and professionally based ONLY on the candidate's CV. Do not invent details.
 
 **Candidate Profile:**
-Name: ${cv.name || 'Eugene Bochkov'}
+Name: ${candidateName}
 Professional Title: ${cv.title || ''}
 Summary: ${cv.summary || ''}
 Visa Status: ${cv.visa || ''}
@@ -3020,8 +3023,9 @@ app.post('/api/jobs/:id/pdf', async (req, res) => {
     }
 
     const settings = readSettings();
+    const candSlug = (settings?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
     const cleanCompany = (job.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-    const fileName = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+    const fileName = `${candSlug}_CV_${cleanCompany}.pdf`;
     const outputPath = path.join(getDataDir(), 'generated', fileName);
 
     console.log('Generating PDF using premium HTML template cv_template.html...');
@@ -3132,14 +3136,11 @@ app.post('/api/extension/state', (req, res) => {
   res.json({ success: true, state: newState });
 });
 
-// Route to serve the default CV
-app.get('/Eugene_Bochkov_CV.pdf', (req, res) => {
-  const cvPath = path.join(__dirname, 'Eugene_Bochkov_CV.pdf');
-  if (fs.existsSync(cvPath)) {
-    res.sendFile(cvPath);
-  } else {
-    res.status(404).send('Default CV not found');
-  }
+// Route to serve dynamic candidate CV
+app.get('/api/cv/base-pdf', (req, res) => {
+  const settings = readSettings();
+  const candSlug = (settings?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
+  res.json({ success: true, fileName: `${candSlug}_CV.pdf` });
 });
 
 // Fallback route for SPA client-side routing

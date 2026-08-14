@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectDir = path.resolve(__dirname, '..');
 
-const label = 'com.eugene.jobsearch.server';
+const label = 'com.jobcopilot.server';
 const plistFileName = `${label}.plist`;
 const homeDir = process.env.HOME || `/Users/${process.env.USER}`;
 const launchAgentsDir = path.join(homeDir, 'Library/LaunchAgents');

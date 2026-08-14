@@ -60,6 +60,6 @@ Logs are redirected locally to the `logs/` directory in the root of this project
 
 ## Technical Details
 
-- **Plist Location**: `~/Library/LaunchAgents/com.eugene.jobsearch.server.plist`
+- **Plist Location**: `~/Library/LaunchAgents/com.jobcopilot.server.plist`
 - **Dynamic Configuration**: The background service uses `scripts/manage-daemon.js` to automatically resolve your current Node binary location and project path, ensuring it doesn't break if you update Node or move the project folder.
 - **Auto-run**: The service is configured to automatically launch when your Mac boots/logs in, and it will restart itself if it unexpectedly crashes.

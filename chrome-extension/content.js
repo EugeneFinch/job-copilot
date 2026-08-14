@@ -757,10 +757,9 @@ function initCopilot() {
           console.log('[Copilot] generatePdf response received:', pdfResponse);
 
           if (pdfResponse && pdfResponse.success) {
-            currentScrapedJob.pdfPath = pdfResponse.data.pdfUrl;
-            const pdfUrl = `http://localhost:3004${currentScrapedJob.pdfPath}?t=${Date.now()}`;
+            const cleanCand = (window.__AJF_SETTINGS__?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
             const cleanCompany = (currentScrapedJob.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-            const pdfFilename = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+            const pdfFilename = `${cleanCand}_CV_${cleanCompany}.pdf`;
 
             logToConsole('✓ PDF compiled successfully on server!');
             logToConsole(`Opening PDF URL: ${pdfUrl}`);
@@ -1668,7 +1667,7 @@ function isStaleOutreachIntro(intro = '') {
   const t = String(intro);
   return (
     /Happy to chat if useful/i.test(t) ||
-    (/Eugene here — just applied/i.test(t) && !/PR|visa|relocat|work rights/i.test(t))
+    (/here — just applied/i.test(t) && !/work rights|visa/i.test(t))
   );
 }
 
@@ -1682,8 +1681,10 @@ function buildQuickOutreachMessage({
   const greeting = first ? `Hey ${first},` : 'Hey,';
   const role = shortRoleTitle(title) || 'this role';
   const atCompany = (company && !isRecruiter) ? ` at ${company}` : '';
+  const candName = (window.__AJF_SETTINGS__?.profile?.name || 'Candidate').trim().split(/\s+/)[0];
+  const workRights = formatOutreachWorkRightsLine();
 
-  const body = `Eugene here. Got full PR to Australia, living in Melbourne with 10+ years in Product. Just applied for the ${role} role${atCompany} — would love to connect and chat if you're open to it!`;
+  const body = `${candName} here. ${workRights} Just applied for the ${role} role${atCompany} — would love to connect and chat if you're open to it!`;
 
   return `${greeting}\n\n${body}`.slice(0, 290);
 }
@@ -4004,14 +4005,15 @@ async function handleAutofill() {
     const pWebsite = profile.website || '';
     const pVisa = profile.visa || '';
 
+    const cleanCand = (profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
     const coverLetter = (currentScrapedJob && currentScrapedJob.coverLetter) || '';
     const pdfUrl = (currentScrapedJob && currentScrapedJob.pdfPath) 
       ? `http://localhost:3004${currentScrapedJob.pdfPath}` 
-      : `http://localhost:3004/Eugene_Bochkov_CV.pdf`;
+      : `http://localhost:3004/api/cv/base-pdf`;
     const cleanCompany = ((currentScrapedJob && currentScrapedJob.company) || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
     const pdfFilename = (currentScrapedJob && currentScrapedJob.pdfPath)
-      ? `Eugene_bochkov_CV_${cleanCompany}.pdf`
-      : 'Eugene_Bochkov_CV.pdf';
+      ? `${cleanCand}_CV_${cleanCompany}.pdf`
+      : `${cleanCand}_CV.pdf`;
 
     logToConsole('Analyzing application fields...');
     const autofillRoot = getAutofillRoot();
@@ -4096,7 +4098,6 @@ async function handleAutofill() {
           val = "";
         } else if (combined.includes('location') && !combined.includes('job')) {
           val = profile.address || "";
-          val = "St Albans, VIC";
         } else if (/product management.*year|years.*product management/i.test(combined)) {
           val = '10';
         } else if (/saas.*startup.*year|years.*saas.*startup/i.test(combined)) {
@@ -6523,8 +6524,9 @@ function addManualActionsToHUD(hud, job) {
 
   if (job.pdfPath) {
     const pdfUrl = `http://localhost:3004${job.pdfPath}`;
+    const cleanCand = (window.__AJF_SETTINGS__?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
     const cleanCompany = (job.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-    const pdfFilename = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+    const pdfFilename = `${cleanCand}_CV_${cleanCompany}.pdf`;
 
     const downloadBtn = document.createElement('a');
     downloadBtn.href = pdfUrl;
@@ -6609,8 +6611,9 @@ async function uploadIndeedCoverLetter(preGenPromise, hud) {
 
     hud.updateStatus('📄 Uploading cover letter...');
 
+    const cleanCand = (window.__AJF_SETTINGS__?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
     const cleanCompany = (job.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `Eugene_Bochkov_Cover_Letter_${cleanCompany}.pdf`;
+    const filename = `${cleanCand}_Cover_Letter_${cleanCompany}.pdf`;
     const pdfContent = buildSimpleTextPdf(job.coverLetter);
     const blob = new Blob([pdfContent], { type: 'application/pdf' });
     const file = new File([blob], filename, { type: 'application/pdf' });
@@ -6674,8 +6677,9 @@ function buildSimpleTextPdf(text) {
 
 async function handleResumeUpload(fileInput, job, currentJobInfo, queue, hud) {
   const pdfUrl = `http://localhost:3004${job.pdfPath}`;
+  const cleanCand = (window.__AJF_SETTINGS__?.profile?.name || 'Candidate').trim().replace(/[^a-zA-Z0-9]/g, '_');
   const cleanCompany = (job.company || 'Company').trim().replace(/[^a-zA-Z0-9]/g, '_');
-  const pdfFilename = `Eugene_bochkov_CV_${cleanCompany}.pdf`;
+  const pdfFilename = `${cleanCand}_CV_${cleanCompany}.pdf`;
 
 
   hud.updateStatus(`📥 Uploading tailored CV... (<a href="${pdfUrl}" target="_blank" download="${pdfFilename}" style="color:#60a5fa; text-decoration:underline; font-weight:bold;">Download PDF manually</a>)`);
@@ -6690,7 +6694,7 @@ async function handleResumeUpload(fileInput, job, currentJobInfo, queue, hud) {
       await sleep(500);
       const text = document.body.innerText || '';
       // If Indeed displays the filename or parts of it on the page, the upload is complete
-      if (text.includes(pdfFilename) || text.includes('Eugene_bochkov_CV_') || text.includes('Eugene-Bochkov-CV')) {
+      if (text.includes(pdfFilename) || text.includes('_CV_')) {
         uploadSuccess = true;
         break;
       }
