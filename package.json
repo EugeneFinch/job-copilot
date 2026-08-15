@@ -1,10 +1,10 @@
 {
-  "name": "aus-job-copilot",
+  "name": "job-copilot",
   "private": false,
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "aus-job-flow": "bin/cli.js",
+    "job-copilot": "bin/cli.js",
     "job-search": "bin/cli.js"
   },
   "scripts": {
