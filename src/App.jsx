@@ -370,7 +370,9 @@ export default function App() {
     visa: '',
     address: '',
     summary: '',
-    experience: []
+    experience: [],
+    auxiliaryProjects: [],
+    education: []
   });
 
   useEffect(() => {
@@ -3272,6 +3274,202 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            <div className="glass-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Auxiliary Projects & Ventures Bank ({(localProfile.auxiliaryProjects || []).length})</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0 0' }}>
+                    Personal mobile apps, open source tools, or AI experiments. Injected selectively when a JD specifically requires hands-on builder proof.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    const updated = [...(localProfile.auxiliaryProjects || [])];
+                    updated.push({ title: '', role: 'Creator / Builder', period: '2024 – Present', description: '' });
+                    setLocalProfile({ ...localProfile, auxiliaryProjects: updated });
+                  }}
+                >
+                  <Plus size={14} /> Add Auxiliary Project
+                </button>
+              </div>
+
+              {(localProfile.auxiliaryProjects || []).length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No auxiliary projects added yet. Click &quot;Add Auxiliary Project&quot; to bank your side projects, mobile apps, or AI experiments.
+                </div>
+              ) : (
+                (localProfile.auxiliaryProjects || []).map((proj, pIdx) => (
+                  <div key={pIdx} style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Project / App Name</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. Consumer iOS App"
+                          value={proj.title || ''}
+                          onChange={(e) => {
+                            const updated = [...localProfile.auxiliaryProjects];
+                            updated[pIdx].title = e.target.value;
+                            setLocalProfile({ ...localProfile, auxiliaryProjects: updated });
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Role / Venture Type</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. Solo Developer & Designer"
+                          value={proj.role || ''}
+                          onChange={(e) => {
+                            const updated = [...localProfile.auxiliaryProjects];
+                            updated[pIdx].role = e.target.value;
+                            setLocalProfile({ ...localProfile, auxiliaryProjects: updated });
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Timeline / Period</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. 2024"
+                          value={proj.period || ''}
+                          onChange={(e) => {
+                            const updated = [...localProfile.auxiliaryProjects];
+                            updated[pIdx].period = e.target.value;
+                            setLocalProfile({ ...localProfile, auxiliaryProjects: updated });
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          style={{ padding: '8px 12px' }}
+                          onClick={() => {
+                            const updated = [...localProfile.auxiliaryProjects];
+                            updated.splice(pIdx, 1);
+                            setLocalProfile({ ...localProfile, auxiliaryProjects: updated });
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>Impact & Description</label>
+                      <textarea
+                        className="form-input"
+                        style={{ height: '60px' }}
+                        placeholder="e.g. Built and scaled native Flutter/React Native application with 10k downloads..."
+                        value={proj.description || ''}
+                        onChange={(e) => {
+                          const updated = [...localProfile.auxiliaryProjects];
+                          updated[pIdx].description = e.target.value;
+                          setLocalProfile({ ...localProfile, auxiliaryProjects: updated });
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="glass-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Education & Qualifications ({(localProfile.education || []).length})</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '4px 0 0 0' }}>
+                    Degrees, universities, or professional accreditations.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    const updated = [...(localProfile.education || [])];
+                    updated.push({ degree: '', school: '', period: '' });
+                    setLocalProfile({ ...localProfile, education: updated });
+                  }}
+                >
+                  <Plus size={14} /> Add Education
+                </button>
+              </div>
+
+              {(localProfile.education || []).length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No education records added yet. Click &quot;Add Education&quot; to add your academic degrees.
+                </div>
+              ) : (
+                (localProfile.education || []).map((edu, eduIdx) => (
+                  <div key={eduIdx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '12px', marginBottom: '12px', alignItems: 'flex-end' }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>Degree / Qualification</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Master of Business Administration"
+                        value={edu.degree || ''}
+                        onChange={(e) => {
+                          const updated = [...localProfile.education];
+                          updated[eduIdx].degree = e.target.value;
+                          setLocalProfile({ ...localProfile, education: updated });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>School / University</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. University of Melbourne"
+                        value={edu.school || ''}
+                        onChange={(e) => {
+                          const updated = [...localProfile.education];
+                          updated[eduIdx].school = e.target.value;
+                          setLocalProfile({ ...localProfile, education: updated });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>Years / Period</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. 2016 – 2018"
+                        value={edu.period || ''}
+                        onChange={(e) => {
+                          const updated = [...localProfile.education];
+                          updated[eduIdx].period = e.target.value;
+                          setLocalProfile({ ...localProfile, education: updated });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        style={{ padding: '8px 12px' }}
+                        onClick={() => {
+                          const updated = [...localProfile.education];
+                          updated.splice(eduIdx, 1);
+                          setLocalProfile({ ...localProfile, education: updated });
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
                 <button 

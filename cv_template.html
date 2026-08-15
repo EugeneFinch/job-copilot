@@ -215,34 +215,45 @@
 <body>
 
   <div class="header">
-    <div class="header-photo-container">
-      <img src="eugene_photo.png" onerror="this.onerror=null; this.src='/data/generated/eugene_photo.png'" alt="Eugene Bochkov" class="profile-photo">
+    <div class="header-photo-container" id="cv-photo-container" style="display: none;">
+      <img id="cv-photo" src="" alt="Profile Photo" class="profile-photo">
     </div>
-    <div class="header-text">
+    <div class="header-text" id="cv-header-text" style="border-left: none; padding-left: 0;">
       <div class="name-title">
         <h1 id="cv-name">Candidate Name</h1>
         <h2 id="cv-title">Senior Product Leader &bull; B2B Platforms & SaaS</h2>
       </div>
       <div class="contact-info">
-        <a href="mailto:candidate@example.com" id="cv-email" class="email-link">candidate@example.com</a> • 
-        <span id="cv-address-container"><span id="cv-address">Melbourne, VIC Australia</span> • </span>
-        <a href="https://linkedin.com/in/profile" target="_blank" id="cv-linkedin">linkedin.com/in/profile</a>
-        <span id="cv-phone-container" style="display: none;"> • <span id="cv-phone"></span></span> • 
-        <span class="visa-badge" id="cv-visa">Full Working Rights (PR)</span>
+        <a href="mailto:candidate@example.com" id="cv-email" class="email-link">candidate@example.com</a>
+        <span id="cv-address-container" style="display: none;"> • <span id="cv-address"></span></span>
+        <span id="cv-linkedin-container" style="display: none;"> • <a href="" target="_blank" id="cv-linkedin"></a></span>
+        <span id="cv-phone-container" style="display: none;"> • <span id="cv-phone"></span></span>
+        <span id="cv-visa-container" style="display: none;"> • <span class="visa-badge" id="cv-visa"></span></span>
       </div>
     </div>
   </div>
 
-  <div class="section-title">Summary</div>
-  <div class="summary-section">
-    <p class="summary-text" id="cv-summary">
-      Executive Product Leader with extensive experience scaling B2B SaaS platforms, product strategy, and cross-functional teams.
-    </p>
+  <div id="cv-summary-section">
+    <div class="section-title">Summary</div>
+    <div class="summary-section">
+      <p class="summary-text" id="cv-summary">
+        Executive Product Leader with extensive experience scaling B2B SaaS platforms, product strategy, and cross-functional teams.
+      </p>
+    </div>
   </div>
 
-  <div class="section-title">Work Experience</div>
-  <div id="cv-experience">
-    <!-- Dynamic Experience Items will be injected here -->
+  <div id="cv-experience-section">
+    <div class="section-title">Work Experience</div>
+    <div id="cv-experience">
+      <!-- Dynamic Experience Items will be injected here -->
+    </div>
+  </div>
+
+  <div id="cv-projects-section" style="display: none;">
+    <div class="section-title">Projects & Technical Ventures</div>
+    <div id="cv-projects">
+      <!-- Dynamic Projects will be injected here -->
+    </div>
   </div>
 
   <div id="cv-skills-section" style="display: none;">
@@ -250,81 +261,109 @@
     <p class="summary-text" id="cv-skills-content" style="margin: 0;"></p>
   </div>
 
-  <div class="section-title">Education</div>
-  <div id="cv-education">
-    <div class="edu-item">
-      <span><span class="edu-degree">Master of Business Administration</span> · <span class="edu-school">Kyiv National Economic University (KNEU)</span></span>
-      <span class="edu-period">2011 – 2012</span>
-    </div>
-    <div class="edu-item">
-      <span><span class="edu-degree">Bachelor of Management</span> · <span class="edu-school">Kyiv National Economic University (KNEU)</span></span>
-      <span class="edu-period">2007 – 2011</span>
+  <div id="cv-education-section" style="display: none;">
+    <div class="section-title">Education</div>
+    <div id="cv-education">
+      <!-- Dynamic Education Items will be injected here -->
     </div>
   </div>
 
-  <div class="section-title">Other</div>
-  <ul class="other-list" id="cv-other-list">
-    <li>Entrepreneur-in-Residence, Antler Singapore (SG4 cohort, 2020)</li>
-  </ul>
+  <div id="cv-other-section" style="display: none;">
+    <div class="section-title">Highlights & Recognition</div>
+    <ul class="other-list" id="cv-other-list">
+      <!-- Dynamic Other Highlights will be injected here -->
+    </ul>
+  </div>
 
   <script>
     function populateCV(data) {
       if (!data) return;
       
+      // Photo Handling
+      const photoContainer = document.getElementById('cv-photo-container');
+      const headerText = document.getElementById('cv-header-text');
+      const photoEl = document.getElementById('cv-photo');
+      const photoSrc = data.photo || data.photoUrl;
+      if (photoSrc && photoContainer && photoEl && headerText) {
+        photoEl.src = photoSrc;
+        photoContainer.style.display = 'block';
+        headerText.style.borderLeft = '1.5px solid #000000';
+        headerText.style.paddingLeft = '18px';
+      } else if (photoContainer && headerText) {
+        photoContainer.style.display = 'none';
+        headerText.style.borderLeft = 'none';
+        headerText.style.paddingLeft = '0';
+      }
+
+      // Name & Title
       if (data.name) document.getElementById('cv-name').innerText = data.name;
       if (data.title) document.getElementById('cv-title').innerText = data.title;
+      
+      // Email
       if (data.email) {
         const emailEl = document.getElementById('cv-email');
         emailEl.innerText = data.email;
         emailEl.href = 'mailto:' + data.email;
+        emailEl.style.display = 'inline';
       }
-      if (data.linkedin) {
-        const liEl = document.getElementById('cv-linkedin');
-        liEl.innerText = data.linkedin;
+
+      // LinkedIn
+      const linkedinContainer = document.getElementById('cv-linkedin-container');
+      const liEl = document.getElementById('cv-linkedin');
+      if (data.linkedin && linkedinContainer && liEl) {
+        linkedinContainer.style.display = 'inline';
+        const cleanLi = data.linkedin.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//i, 'linkedin.com/in/');
+        liEl.innerText = cleanLi;
         liEl.href = data.linkedin.startsWith('http') ? data.linkedin : 'https://' + data.linkedin;
-      }
-      if (data.phone) {
-        const phoneContainer = document.getElementById('cv-phone-container');
-        if (phoneContainer) phoneContainer.style.display = 'inline';
-        const phoneEl = document.getElementById('cv-phone');
-        if (phoneEl) phoneEl.innerText = data.phone;
-      }
-      if (data.address) {
-        const addrContainer = document.getElementById('cv-address-container');
-        if (addrContainer) addrContainer.style.display = 'inline';
-        const addrEl = document.getElementById('cv-address');
-        if (addrEl) addrEl.innerText = data.address;
-      }
-      if (data.visa) {
-        document.getElementById('cv-visa').innerText = data.visa;
-      }
-      if (data.summary) {
-        document.getElementById('cv-summary').innerText = data.summary;
+      } else if (linkedinContainer) {
+        linkedinContainer.style.display = 'none';
       }
 
-      const skillsSection = document.getElementById('cv-skills-section');
-      const skillsContent = document.getElementById('cv-skills-content');
-      const coreSkills = (data.coreSkills || '').trim();
-      if (skillsSection && skillsContent) {
-        if (coreSkills) {
-          skillsSection.style.display = 'block';
-          skillsContent.innerText = coreSkills;
-        } else {
-          skillsSection.style.display = 'none';
-          skillsContent.innerText = '';
-        }
+      // Phone
+      const phoneContainer = document.getElementById('cv-phone-container');
+      const phoneEl = document.getElementById('cv-phone');
+      if (data.phone && phoneContainer && phoneEl) {
+        phoneContainer.style.display = 'inline';
+        phoneEl.innerText = data.phone;
+      } else if (phoneContainer) {
+        phoneContainer.style.display = 'none';
       }
 
-      const otherList = document.getElementById('cv-other-list');
-      if (otherList) {
-        const extras = Array.isArray(data.otherHighlights) ? data.otherHighlights.filter(Boolean) : [];
-        const defaultOther = 'Entrepreneur-in-Residence, Antler Singapore (SG4 cohort, 2020)';
-        const lines = extras.length ? extras : [defaultOther];
-        otherList.innerHTML = lines.map((line) => `<li>${line}</li>`).join('');
+      // Address
+      const addrContainer = document.getElementById('cv-address-container');
+      const addrEl = document.getElementById('cv-address');
+      if (data.address && addrContainer && addrEl) {
+        addrContainer.style.display = 'inline';
+        addrEl.innerText = data.address;
+      } else if (addrContainer) {
+        addrContainer.style.display = 'none';
       }
-      
-      if (data.experience && data.experience.length > 0) {
-        const expContainer = document.getElementById('cv-experience');
+
+      // Visa
+      const visaContainer = document.getElementById('cv-visa-container');
+      const visaEl = document.getElementById('cv-visa');
+      if (data.visa && visaContainer && visaEl) {
+        visaContainer.style.display = 'inline';
+        visaEl.innerText = data.visa;
+      } else if (visaContainer) {
+        visaContainer.style.display = 'none';
+      }
+
+      // Summary
+      const summarySec = document.getElementById('cv-summary-section');
+      const summaryEl = document.getElementById('cv-summary');
+      if (data.summary && summaryEl) {
+        summarySec.style.display = 'block';
+        summaryEl.innerText = data.summary;
+      } else if (summarySec) {
+        summarySec.style.display = 'none';
+      }
+
+      // Work Experience
+      const expContainer = document.getElementById('cv-experience');
+      const expSec = document.getElementById('cv-experience-section');
+      if (data.experience && data.experience.length > 0 && expContainer) {
+        expSec.style.display = 'block';
         expContainer.innerHTML = '';
         
         data.experience.forEach(exp => {
@@ -335,16 +374,15 @@
           header.className = 'exp-header';
           header.innerHTML = `
             <span class="exp-role-company">
-              <span class="exp-role">${exp.role}</span>, 
-              <span class="exp-company">${exp.company}</span>
+              <span class="exp-role">${exp.role || ''}</span>${exp.company ? `, <span class="exp-company">${exp.company}</span>` : ''}
             </span>
-            <span class="exp-meta">${exp.period} | ${exp.location || 'Remote'}</span>
+            <span class="exp-meta">${exp.period || ''}${exp.location ? ` | ${exp.location}` : ''}</span>
           `;
           
           const bullets = document.createElement('ul');
           bullets.className = 'exp-bullets';
           
-          exp.bullets.forEach(bullet => {
+          (exp.bullets || []).forEach(bullet => {
             const li = document.createElement('li');
             li.innerText = bullet;
             bullets.appendChild(li);
@@ -354,6 +392,73 @@
           item.appendChild(bullets);
           expContainer.appendChild(item);
         });
+      } else if (expSec) {
+        expSec.style.display = 'none';
+      }
+
+      // Projects / Auxiliary
+      const projSec = document.getElementById('cv-projects-section');
+      const projContainer = document.getElementById('cv-projects');
+      const projects = data.projects || data.auxiliaryProjects || [];
+      if (projects.length > 0 && projSec && projContainer) {
+        projSec.style.display = 'block';
+        projContainer.innerHTML = '';
+        projects.forEach(p => {
+          const item = document.createElement('div');
+          item.className = 'experience-item';
+          item.innerHTML = `
+            <div class="exp-header">
+              <span class="exp-role-company">
+                <span class="exp-role">${p.title || p.name || ''}</span>${p.role ? ` — <span class="exp-company">${p.role}</span>` : ''}
+              </span>
+              <span class="exp-meta">${p.period || ''}</span>
+            </div>
+            <p class="summary-text" style="font-size:9.5pt; margin-top:2px;">${p.description || p.summary || ''}</p>
+          `;
+          projContainer.appendChild(item);
+        });
+      } else if (projSec) {
+        projSec.style.display = 'none';
+      }
+
+      // Core Skills
+      const skillsSection = document.getElementById('cv-skills-section');
+      const skillsContent = document.getElementById('cv-skills-content');
+      const coreSkills = (data.coreSkills || '').trim();
+      if (skillsSection && skillsContent) {
+        if (coreSkills) {
+          skillsSection.style.display = 'block';
+          skillsContent.innerText = coreSkills;
+        } else {
+          skillsSection.style.display = 'none';
+        }
+      }
+
+      // Education
+      const eduSec = document.getElementById('cv-education-section');
+      const eduContainer = document.getElementById('cv-education');
+      const education = Array.isArray(data.education) ? data.education.filter(Boolean) : [];
+      if (education.length > 0 && eduSec && eduContainer) {
+        eduSec.style.display = 'block';
+        eduContainer.innerHTML = education.map(edu => `
+          <div class="edu-item">
+            <span><span class="edu-degree">${edu.degree || edu.title || ''}</span>${edu.school ? ` · <span class="edu-school">${edu.school}</span>` : ''}</span>
+            <span class="edu-period">${edu.period || edu.year || ''}</span>
+          </div>
+        `).join('');
+      } else if (eduSec) {
+        eduSec.style.display = 'none';
+      }
+
+      // Other Highlights
+      const otherSec = document.getElementById('cv-other-section');
+      const otherList = document.getElementById('cv-other-list');
+      const extras = Array.isArray(data.otherHighlights) ? data.otherHighlights.filter(Boolean) : (Array.isArray(data.other) ? data.other.filter(Boolean) : []);
+      if (extras.length > 0 && otherSec && otherList) {
+        otherSec.style.display = 'block';
+        otherList.innerHTML = extras.map(line => `<li>${line}</li>`).join('');
+      } else if (otherSec) {
+        otherSec.style.display = 'none';
       }
     }
   </script>
